@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { Layout } from "@/components/Layout";
 import { useStore, formatMoney, type Order } from "@/lib/store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -8,8 +9,12 @@ import { Button } from "@/components/ui/button";
 
 export default function Account() {
   const currentUser = useStore((s) => s.currentUser);
-  const orders = useStore((s) => s.orders.filter((o) => o.username === currentUser));
+  const allOrders = useStore((s) => s.orders);
   const settings = useStore((s) => s.settings);
+  const orders = useMemo(
+    () => allOrders.filter((o) => o.username === currentUser),
+    [allOrders, currentUser]
+  );
 
   if (!currentUser) {
     return (
