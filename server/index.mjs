@@ -16,6 +16,17 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
+// TEMP DIAGNOSTIC: log a masked version of what the process actually received.
+// Remove this block once the connection issue is resolved.
+try {
+  const u = new URL(process.env.DATABASE_URL);
+  console.log("[diag] DATABASE_URL parsed -> protocol:", u.protocol, "user:", u.username,
+    "password_length:", u.password.length, "password_preview:", u.password.slice(0, 3) + "..." + u.password.slice(-3),
+    "host:", u.hostname, "port:", u.port, "db:", u.pathname);
+} catch (e) {
+  console.log("[diag] DATABASE_URL could not be parsed as a URL:", e.message, "raw_length:", process.env.DATABASE_URL.length);
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
