@@ -1,7 +1,7 @@
 import { useNavigate, Link } from "@tanstack/react-router";
 import {
   useStore, adminActions, productActions, settingsActions, orderActions,
-  staffActions, chatActions, statsActions,
+  staffActions, chatActions, statsActions, reviewAdminActions,
   formatMoney, type Product, type Order, type SiteSettings, type HomeSection,
   type ChatThread, type ChatMessage, type SiteStats,
 } from "@/lib/store";
@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Plus, Pencil, Trash2, Key, Package, ShoppingBag, Settings as SettingsIcon,
   LogOut, CheckCircle2, XCircle, Eye, Home, Users, LayoutList, ArrowUp, ArrowDown,
-  UserCog, MessageCircle, BarChart3, Star, Send,
+  UserCog, MessageCircle, BarChart3, Star, Send, EyeOff, MessageSquareOff, Image as ImageIcon,
 } from "lucide-react";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
@@ -64,6 +64,7 @@ export default function Dashboard() {
               <TabsTrigger value="orders"><ShoppingBag className="w-4 h-4 ml-1" /> الطلبات</TabsTrigger>
               <TabsTrigger value="users"><Users className="w-4 h-4 ml-1" /> المستخدمون</TabsTrigger>
               <TabsTrigger value="sections"><LayoutList className="w-4 h-4 ml-1" /> الأقسام</TabsTrigger>
+              <TabsTrigger value="reviews"><Star className="w-4 h-4 ml-1" /> التقييمات</TabsTrigger>
               <TabsTrigger value="team"><UserCog className="w-4 h-4 ml-1" /> الفريق</TabsTrigger>
               <TabsTrigger value="chats"><MessageCircle className="w-4 h-4 ml-1" /> الدردشات</TabsTrigger>
               <TabsTrigger value="stats"><BarChart3 className="w-4 h-4 ml-1" /> الإحصائيات</TabsTrigger>
@@ -73,6 +74,7 @@ export default function Dashboard() {
             <TabsContent value="orders" className="mt-4"><OrdersAdmin /></TabsContent>
             <TabsContent value="users" className="mt-4"><UsersAdmin /></TabsContent>
             <TabsContent value="sections" className="mt-4"><SectionsAdmin /></TabsContent>
+            <TabsContent value="reviews" className="mt-4"><ReviewsAdmin /></TabsContent>
             <TabsContent value="team" className="mt-4"><TeamAdmin /></TabsContent>
             <TabsContent value="chats" className="mt-4"><ChatsAdmin /></TabsContent>
             <TabsContent value="stats" className="mt-4"><StatsAdmin /></TabsContent>
@@ -349,7 +351,43 @@ function SettingsAdmin() {
         <IconUploadField label="Barq" value={form.paymentIcons.barq} onChange={(v) => setForm((f) => ({ ...f, paymentIcons: { ...f.paymentIcons, barq: v } }))} />
         <IconUploadField label="البنك الأهلي" value={form.paymentIcons.ahliBank} onChange={(v) => setForm((f) => ({ ...f, paymentIcons: { ...f.paymentIcons, ahliBank: v } }))} />
       </div>
+
+      <h3 className="font-display text-lg font-bold neon-text mt-8 mb-3">بنرات المتجر</h3>
+      <div className="text-xs text-muted-foreground mb-3">تُعرض الصورة كاملة بأبعادها الأصلية بدون أي قص. أضف قسم "البنرات" من تبويب الأقسام لعرضها بالصفحة الرئيسية.</div>
+      <BannersUploadField value={form.banners} onChange={(v) => up("banners", v)} />
+
       <div className="mt-6 flex justify-end"><Button onClick={save} className="gradient-purple neon-glow">حفظ</Button></div>
+    </div>
+  );
+}
+
+function BannersUploadField({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    files.forEach((f) => {
+      if (f.size > 3 * 1024 * 1024) { toast.error(`${f.name} أكبر من 3MB`); return; }
+      const r = new FileReader();
+      r.onload = () => onChange([...value, String(r.result)]);
+      r.readAsDataURL(f);
+    });
+    e.target.value = "";
+  }
+  function remove(i: number) { onChange(value.filter((_, idx) => idx !== i)); }
+  return (
+    <div>
+      <div className="flex flex-wrap gap-3 mb-3">
+        {value.map((src, i) => (
+          <div key={i} className="relative">
+            <img src={src} className="w-28 h-20 object-contain rounded-lg bg-black/30 p-1 neon-border" alt={`banner-${i}`} />
+            <button onClick={() => remove(i)} className="absolute -top-2 -left-2 bg-destructive text-white w-6 h-6 rounded-full text-xs">×</button>
+          </div>
+        ))}
+      </div>
+      <label className="cursor-pointer inline-block px-4 py-2 rounded-lg bg-secondary hover:bg-primary/30 text-sm">
+        رفع صور بنرات (يمكن اختيار أكثر من صورة)
+        <input type="file" accept="image/*" multiple className="hidden" onChange={onFiles} />
+      </label>
     </div>
   );
 }
@@ -402,6 +440,14 @@ function SectionsAdmin() {
     const cat = categories[0];
     setSections([...sections, { id: "sec-" + Date.now(), type: "category", title: cat, category: cat }]);
   }
+  function addReviewsSection() {
+    if (sections.some((s) => s.type === "reviews")) { toast.error("قسم التقييمات مضاف بالفعل"); return; }
+    setSections([...sections, { id: "sec-reviews-" + Date.now(), type: "reviews", title: "آراء عملائنا" }]);
+  }
+  function addBannersSection() {
+    if (sections.some((s) => s.type === "banners")) { toast.error("قسم البنرات مضاف بالفعل"); return; }
+    setSections([...sections, { id: "sec-banners-" + Date.now(), type: "banners", title: "تعرف على متجرنا" }]);
+  }
   async function save() {
     await settingsActions.update({ homeSections: sections });
     toast.success("تم حفظ ترتيب الأقسام");
@@ -409,12 +455,21 @@ function SectionsAdmin() {
 
   return (
     <div className="glass neon-border rounded-2xl p-6 max-w-3xl">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h2 className="font-display text-2xl font-bold neon-text">أقسام الصفحة الرئيسية</h2>
-        <Button onClick={addCategorySection} className="gradient-purple neon-glow" size="sm">
-          <Plus className="w-4 h-4 ml-1" /> إضافة قسم تصنيف
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          <Button onClick={addCategorySection} className="gradient-purple neon-glow" size="sm">
+            <Plus className="w-4 h-4 ml-1" /> قسم تصنيف
+          </Button>
+          <Button onClick={addReviewsSection} variant="outline" className="border-primary/50" size="sm">
+            <Star className="w-4 h-4 ml-1" /> قسم التقييمات
+          </Button>
+          <Button onClick={addBannersSection} variant="outline" className="border-primary/50" size="sm">
+            <ImageIcon className="w-4 h-4 ml-1" /> قسم البنرات
+          </Button>
+        </div>
       </div>
+      <div className="text-xs text-muted-foreground mb-3">استخدم الأسهم لترتيب الأقسام — رتّب قسم التقييمات أو البنرات في أعلى الصفحة أو أسفلها كيفما تحب.</div>
       <div className="space-y-2">
         {sections.map((sec, i) => (
           <div key={sec.id} className="flex items-center gap-3 glass neon-border rounded-xl p-3">
@@ -442,11 +497,14 @@ function SectionsAdmin() {
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground mt-1">
-                  {sec.type === "featured" ? "قسم المنتجات المميزة" : "قسم كل المنتجات"}
+                  {sec.type === "featured" ? "قسم المنتجات المميزة"
+                    : sec.type === "all" ? "قسم كل المنتجات"
+                    : sec.type === "reviews" ? "قسم التقييمات الحقيقية"
+                    : "قسم بنرات المتجر"}
                 </div>
               )}
             </div>
-            {sec.type === "category" && (
+            {sec.type !== "featured" && sec.type !== "all" && (
               <Button size="sm" variant="outline" className="border-destructive/50 text-destructive" onClick={() => remove(i)}>
                 <Trash2 className="w-3 h-3" />
               </Button>
@@ -455,6 +513,72 @@ function SectionsAdmin() {
         ))}
       </div>
       <div className="mt-6 flex justify-end"><Button onClick={save} className="gradient-purple neon-glow">حفظ الترتيب</Button></div>
+    </div>
+  );
+}
+
+// ---------- Reviews moderation ----------
+function ReviewsAdmin() {
+  const orders = useStore((s) => s.orders);
+  const reviewed = orders.filter((o) => !!o.rating);
+
+  async function act(id: string, action: "hide" | "unhide" | "delete-comment" | "delete-review") {
+    if (action === "delete-review" && !confirm("حذف التقييم بالكامل نهائيًا؟")) return;
+    if (action === "delete-comment" && !confirm("حذف نص التعليق (تبقى النجوم فقط)؟")) return;
+    await reviewAdminActions.moderate(id, action);
+    toast.success("تم التحديث");
+  }
+
+  return (
+    <div>
+      <h2 className="font-display text-2xl font-bold neon-text mb-4">التقييمات ({reviewed.length})</h2>
+      {reviewed.length === 0 && (
+        <div className="text-center py-16 text-muted-foreground glass neon-border rounded-xl">لا توجد تقييمات بعد</div>
+      )}
+      <div className="grid gap-3">
+        {reviewed.map((o) => (
+          <div key={o.id} className={`glass neon-border rounded-xl p-4 ${o.reviewHidden ? "opacity-50" : ""}`}>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold">{o.username}</span>
+                  <span className="text-xs text-muted-foreground">#{o.id}</span>
+                  {o.reviewHidden && <Badge variant="outline" className="border-muted-foreground/40 text-muted-foreground">مخفي</Badge>}
+                </div>
+                <div className="flex gap-0.5 mt-1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <Star key={n} className={`w-4 h-4 ${n <= (o.rating || 0) ? "fill-primary text-primary" : "text-muted-foreground"}`} />
+                  ))}
+                </div>
+                {o.reviewComment ? (
+                  <p className="text-sm text-muted-foreground mt-2 max-w-xl">{o.reviewComment}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic mt-2">بدون تعليق نصي</p>
+                )}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {o.reviewHidden ? (
+                  <Button size="sm" variant="outline" className="border-primary/50" onClick={() => act(o.id, "unhide")}>
+                    <Eye className="w-3 h-3 ml-1" /> إظهار
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" className="border-primary/50" onClick={() => act(o.id, "hide")}>
+                    <EyeOff className="w-3 h-3 ml-1" /> إخفاء
+                  </Button>
+                )}
+                {o.reviewComment && (
+                  <Button size="sm" variant="outline" className="border-amber-500/50 text-amber-400" onClick={() => act(o.id, "delete-comment")}>
+                    <MessageSquareOff className="w-3 h-3 ml-1" /> حذف النص فقط
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" className="border-destructive/50 text-destructive" onClick={() => act(o.id, "delete-review")}>
+                  <Trash2 className="w-3 h-3 ml-1" /> حذف التقييم
+                </Button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

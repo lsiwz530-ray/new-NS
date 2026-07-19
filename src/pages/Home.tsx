@@ -1,7 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { useSearch } from "@tanstack/react-router";
 import { Layout } from "@/components/Layout";
-import { ProductCard } from "@/components/ProductCard";
+import { ProductCarousel } from "@/components/ProductCarousel";
+import { ReviewsSection } from "@/components/ReviewsSection";
+import { BannersSection } from "@/components/BannersSection";
 import { useStore, type HomeSection, type Product } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Sparkles, ShieldCheck, Zap, ArrowLeft } from "lucide-react";
@@ -63,13 +65,13 @@ export default function Home() {
             {filtered.length === 0 ? (
               <div className="text-center py-20 text-muted-foreground">لا توجد منتجات مطابقة</div>
             ) : (
-              <ProductGrid products={filtered} />
+              <ProductCarousel products={filtered} />
             )}
           </div>
         </section>
       ) : (
         sections.map((sec) => (
-          <HomeSectionBlock key={sec.id} section={sec} featured={featured} rest={rest} all={filtered} />
+          <HomeSectionBlock key={sec.id} section={sec} featured={featured} rest={rest} all={filtered} banners={settings.banners} />
         ))
       )}
     </Layout>
@@ -77,15 +79,15 @@ export default function Home() {
 }
 
 function HomeSectionBlock({
-  section, featured, rest, all,
-}: { section: HomeSection; featured: Product[]; rest: Product[]; all: Product[] }) {
+  section, featured, rest, all, banners,
+}: { section: HomeSection; featured: Product[]; rest: Product[]; all: Product[]; banners: string[] }) {
   if (section.type === "featured") {
     if (featured.length === 0) return null;
     return (
       <section id="featured" className="py-16">
         <div className="mx-auto max-w-7xl px-4">
           <SectionTitle title={section.title} subtitle="اختياراتنا الأسطورية" />
-          <ProductGrid products={featured} />
+          <ProductCarousel products={featured} />
         </div>
       </section>
     );
@@ -97,10 +99,16 @@ function HomeSectionBlock({
       <section className="py-16">
         <div className="mx-auto max-w-7xl px-4">
           <SectionTitle title={section.title} subtitle={section.category || ""} />
-          <ProductGrid products={items} />
+          <ProductCarousel products={items} />
         </div>
       </section>
     );
+  }
+  if (section.type === "reviews") {
+    return <ReviewsSection title={section.title} />;
+  }
+  if (section.type === "banners") {
+    return <BannersSection title={section.title} banners={banners} />;
   }
   // type === "all"
   if (rest.length === 0) return null;
@@ -108,17 +116,9 @@ function HomeSectionBlock({
     <section className="py-16">
       <div className="mx-auto max-w-7xl px-4">
         <SectionTitle title={section.title} subtitle={`${rest.length} منتج`} />
-        <ProductGrid products={rest} />
+        <ProductCarousel products={rest} />
       </div>
     </section>
-  );
-}
-
-function ProductGrid({ products }: { products: Product[] }) {
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 mt-8">
-      {products.map((p) => <ProductCard key={p.id} product={p} />)}
-    </div>
   );
 }
 

@@ -53,7 +53,7 @@ async function migrate() {
       "receiptImage" TEXT, note TEXT, status TEXT, "createdAt" BIGINT, "completedAt" BIGINT,
       rating INTEGER, "reviewComment" TEXT, "reviewedAt" BIGINT
     );
-    CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, "createdAt" BIGINT);
+    CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, "createdAt" BIGINT);
     CREATE TABLE IF NOT EXISTS staff (
       username TEXT PRIMARY KEY, password TEXT, token TEXT, "createdAt" BIGINT
     );
@@ -69,6 +69,9 @@ async function migrate() {
       id TEXT PRIMARY KEY, path TEXT, ip TEXT, country TEXT, city TEXT, "createdAt" BIGINT
     );
   `);
+  // Backfill columns for databases created before this migration existed.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password TEXT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "reviewHidden" INTEGER DEFAULT 0`);
 }
 
 const DEFAULT_SETTINGS = {
@@ -85,6 +88,7 @@ const DEFAULT_SETTINGS = {
   twitterUrl: "",
   footerText: "© NorthSite — جميع الحقوق محفوظة",
   paymentIcons: { stcPay: "", barq: "", ahliBank: "" },
+  banners: [],
   homeSections: [
     { id: "sec-featured", type: "featured", title: "المميزة" },
     { id: "sec-all", type: "all", title: "كل المنتجات" },
@@ -150,6 +154,7 @@ function rowToOrder(r) {
     status: r.status, createdAt: Number(r.createdAt), completedAt: r.completedAt ? Number(r.completedAt) : undefined,
     rating: r.rating || undefined, reviewComment: r.reviewComment || undefined,
     reviewedAt: r.reviewedAt ? Number(r.reviewedAt) : undefined,
+    reviewHidden: !!r.reviewHidden,
   };
 }
 
@@ -160,7 +165,8 @@ async function allOrders() {
   return (await q(`SELECT * FROM orders ORDER BY "createdAt" DESC`)).map(rowToOrder);
 }
 async function allUsers() {
-  return q(`SELECT * FROM users ORDER BY "createdAt" DESC`);
+  // Never return password hashes to any client, including the admin panel.
+  return q(`SELECT username, "createdAt" FROM users ORDER BY "createdAt" DESC`);
 }
 
 const ADMIN_USER = process.env.ADMIN_USER || "North";
@@ -183,6 +189,40 @@ async function requireAdmin(req, res, next) {
 }
 async function isAdminToken(tok) {
   return tok === ADMIN_TOKEN || !!(await staffByToken(tok));
+}
+
+// -------- Password hashing (scrypt, salted) --------
+function hashPassword(plain) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(plain, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+function verifyPassword(plain, stored) {
+  if (!stored || !stored.includes(":")) return false;
+  const [salt, hash] = stored.split(":");
+  const check = crypto.scryptSync(plain, salt, 64).toString("hex");
+  try {
+    return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(check, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+// -------- Username suggestions when a name is taken --------
+async function suggestUsernames(base) {
+  const clean = base.replace(/[^a-zA-Z0-9_\u0600-\u06FF]/g, "") || "User";
+  const candidates = [];
+  for (let i = 0; i < 30 && candidates.length < 4; i++) {
+    const suffix = i === 0 ? Math.floor(10 + Math.random() * 89) : Math.floor(100 + Math.random() * 899);
+    candidates.push(`${clean}${suffix}`);
+  }
+  const out = [];
+  for (const c of candidates) {
+    const exists = await one("SELECT username FROM users WHERE lower(username)=lower($1)", [c]);
+    if (!exists) out.push(c);
+    if (out.length >= 3) break;
+  }
+  return out;
 }
 
 const app = express();
@@ -218,12 +258,40 @@ app.post("/api/admin/login", (req, res) => {
 });
 
 // -------- Users --------
+// Every account now requires a password. An existing username can only be
+// logged into with the correct password; a new username registers together
+// with the password the visitor chooses on the spot.
+app.post("/api/users/check", asyncRoute(async (req, res) => {
+  const uname = String(req.body?.username || req.query.username || "").trim();
+  if (!uname) return res.json({ taken: false, suggestions: [] });
+  const existing = await one("SELECT username FROM users WHERE lower(username)=lower($1)", [uname]);
+  if (!existing) return res.json({ taken: false, suggestions: [] });
+  const suggestions = await suggestUsernames(uname);
+  res.json({ taken: true, suggestions });
+}));
+
 app.post("/api/users/login", asyncRoute(async (req, res) => {
   const uname = String(req.body?.username || "").trim();
+  const password = String(req.body?.password || "");
   if (!uname || uname.length < 2 || uname.length > 20) return res.status(400).json({ error: "invalid" });
+  if (!password || password.length < 4) return res.status(400).json({ error: "weak_password" });
+
   const existing = await one("SELECT * FROM users WHERE lower(username)=lower($1)", [uname]);
-  if (existing) return res.json({ ok: true, username: existing.username });
-  await pool.query(`INSERT INTO users (username, "createdAt") VALUES ($1,$2)`, [uname, Date.now()]);
+
+  if (existing) {
+    // Username already registered: must match the password on file.
+    if (!verifyPassword(password, existing.password)) {
+      const suggestions = await suggestUsernames(uname);
+      return res.status(401).json({ error: "wrong_password", suggestions });
+    }
+    return res.json({ ok: true, username: existing.username });
+  }
+
+  // Brand-new username: register it with this password.
+  await pool.query(
+    `INSERT INTO users (username, password, "createdAt") VALUES ($1,$2,$3)`,
+    [uname, hashPassword(password), Date.now()]
+  );
   res.json({ ok: true, username: uname });
 }));
 
@@ -350,6 +418,40 @@ app.post("/api/orders/:id/review", asyncRoute(async (req, res) => {
     `UPDATE orders SET rating=$1, "reviewComment"=$2, "reviewedAt"=$3 WHERE id=$4`,
     [r, String(comment || "").slice(0, 500), Date.now(), req.params.id]
   );
+  res.json({ ok: true });
+}));
+
+// -------- Public: real reviews for the homepage --------
+app.get("/api/reviews", asyncRoute(async (req, res) => {
+  const rows = await q(
+    `SELECT id, username, rating, "reviewComment", "reviewedAt" FROM orders
+     WHERE rating IS NOT NULL AND COALESCE("reviewHidden",0)=0
+     ORDER BY "reviewedAt" DESC LIMIT 50`
+  );
+  res.json({
+    reviews: rows.map((r) => ({
+      orderId: r.id, username: r.username, rating: r.rating,
+      comment: r.reviewComment || "", createdAt: Number(r.reviewedAt),
+    })),
+  });
+}));
+
+// -------- Admin: moderate a review (hide/unhide, wipe comment, delete review) --------
+app.post("/api/admin/orders/:id/review/moderate", requireAdmin, asyncRoute(async (req, res) => {
+  const { action } = req.body || {};
+  const row = await one("SELECT * FROM orders WHERE id=$1", [req.params.id]);
+  if (!row) return res.status(404).json({ error: "not found" });
+  if (action === "hide") {
+    await pool.query(`UPDATE orders SET "reviewHidden"=1 WHERE id=$1`, [req.params.id]);
+  } else if (action === "unhide") {
+    await pool.query(`UPDATE orders SET "reviewHidden"=0 WHERE id=$1`, [req.params.id]);
+  } else if (action === "delete-comment") {
+    await pool.query(`UPDATE orders SET "reviewComment"='' WHERE id=$1`, [req.params.id]);
+  } else if (action === "delete-review") {
+    await pool.query(`UPDATE orders SET rating=NULL, "reviewComment"=NULL, "reviewedAt"=NULL, "reviewHidden"=0 WHERE id=$1`, [req.params.id]);
+  } else {
+    return res.status(400).json({ error: "invalid action" });
+  }
   res.json({ ok: true });
 }));
 

@@ -15,18 +15,20 @@ export type Order = {
   receiptImage: string; note: string;
   status: "pending" | "completed" | "rejected";
   createdAt: number; completedAt?: number;
-  rating?: number; reviewComment?: string; reviewedAt?: number;
+  rating?: number; reviewComment?: string; reviewedAt?: number; reviewHidden?: boolean;
 };
 export type User = { username: string; createdAt: number };
 export type StaffUser = { username: string; createdAt: number };
-export type HomeSection = { id: string; type: "featured" | "all" | "category"; title: string; category?: string };
+export type HomeSection = { id: string; type: "featured" | "all" | "category" | "reviews" | "banners"; title: string; category?: string };
 export type SiteSettings = {
   siteName: string; tagline: string; heroTitle: string; heroSubtitle: string;
   iban: string; bankName: string; accountName: string; phone: string;
   currency: string; discordUrl: string; twitterUrl: string; footerText: string;
   paymentIcons: { stcPay: string; barq: string; ahliBank: string };
+  banners: string[];
   homeSections: HomeSection[];
 };
+export type PublicReview = { orderId: string; username: string; rating: number; comment: string; createdAt: number };
 export type CartItem = { productId: string; quantity: number };
 export type ChatMessage = { id: string; username: string; sender: "user" | "admin" | "system"; senderName: string; text: string; createdAt: number };
 export type ChatThread = {
@@ -50,6 +52,7 @@ const DEFAULT_SETTINGS: SiteSettings = {
   accountName: "North Store", phone: "05xxxxxxxx", currency: "ر.س",
   discordUrl: "", twitterUrl: "", footerText: "© NorthSite — جميع الحقوق محفوظة",
   paymentIcons: { stcPay: "", barq: "", ahliBank: "" },
+  banners: [],
   homeSections: [
     { id: "sec-featured", type: "featured", title: "المميزة" },
     { id: "sec-all", type: "all", title: "كل المنتجات" },
@@ -98,7 +101,11 @@ async function fetchState() {
       orders: data.orders || [],
       users: data.users || [],
       staff: data.staff || [],
-      settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}), paymentIcons: { ...DEFAULT_SETTINGS.paymentIcons, ...(data.settings?.paymentIcons || {}) } },
+      settings: {
+        ...DEFAULT_SETTINGS, ...(data.settings || {}),
+        paymentIcons: { ...DEFAULT_SETTINGS.paymentIcons, ...(data.settings?.paymentIcons || {}) },
+        banners: data.settings?.banners || [],
+      },
     };
     emit();
   } catch {}
@@ -169,18 +176,40 @@ export const cartActions = {
 };
 
 // ---------- Users ----------
+export type LoginResult = { ok: boolean; error?: string; suggestions?: string[] };
 export const userActions = {
-  async loginOrRegister(username: string): Promise<{ ok: boolean; error?: string }> {
+  async loginOrRegister(username: string, password: string): Promise<LoginResult> {
     const u = username.trim();
     if (!u) return { ok: false, error: "أدخل اسم المستخدم" };
     if (u.length < 2 || u.length > 20) return { ok: false, error: "الاسم بين 2 و 20 حرف" };
-    try {
-      const data = await api("/api/users/login", { method: "POST", body: JSON.stringify({ username: u }) });
-      set({ currentUser: data.username }); saveClient();
-      fetchState();
-      return { ok: true };
-    } catch {
+    if (!password || password.length < 4) return { ok: false, error: "كلمة المرور 4 أحرف على الأقل" };
+    const res = await fetch("/api/users/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: u, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (data.error === "wrong_password") {
+        return { ok: false, error: "هذا الاسم محجوز لصاحبه — كلمة المرور غير صحيحة", suggestions: data.suggestions || [] };
+      }
       return { ok: false, error: "تعذر تسجيل الدخول" };
+    }
+    set({ currentUser: data.username }); saveClient();
+    fetchState();
+    return { ok: true };
+  },
+  // Live check while typing, so the UI can warn + suggest before submitting.
+  async checkUsername(username: string): Promise<{ taken: boolean; suggestions: string[] }> {
+    try {
+      const res = await fetch("/api/users/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username.trim() }),
+      });
+      return await res.json();
+    } catch {
+      return { taken: false, suggestions: [] };
     }
   },
   logout() { set({ currentUser: null }); saveClient(); fetchState(); },
@@ -243,6 +272,24 @@ export const reviewActions = {
       method: "POST",
       body: JSON.stringify({ username: state.currentUser, rating, comment }),
     });
+    await fetchState();
+  },
+  // Public real reviews for the homepage (no admin token needed).
+  async fetchPublic(): Promise<PublicReview[]> {
+    try {
+      const res = await fetch("/api/reviews");
+      const data = await res.json();
+      return data.reviews || [];
+    } catch {
+      return [];
+    }
+  },
+};
+
+// ---------- Review moderation (admin) ----------
+export const reviewAdminActions = {
+  async moderate(orderId: string, action: "hide" | "unhide" | "delete-comment" | "delete-review") {
+    await api(`/api/admin/orders/${orderId}/review/moderate`, { method: "POST", body: JSON.stringify({ action }) });
     await fetchState();
   },
 };
