@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Plus, Pencil, Trash2, Key, Package, ShoppingBag, Settings as SettingsIcon,
   LogOut, CheckCircle2, XCircle, Eye, Home, Users, LayoutList, ArrowUp, ArrowDown,
@@ -99,6 +100,7 @@ function ProductsAdmin() {
   const products = useStore((s) => s.products);
   const [editing, setEditing] = useState<Product | null>(null);
   const [creating, setCreating] = useState(false);
+  const categories = Array.from(new Set(products.map((p) => p.category).filter(Boolean))).sort();
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -127,17 +129,18 @@ function ProductsAdmin() {
           </div>
         ))}
       </div>
-      <ProductDialog open={creating} onOpenChange={setCreating} />
-      <ProductDialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)} product={editing || undefined} />
+      <ProductDialog open={creating} onOpenChange={setCreating} categories={categories} />
+      <ProductDialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)} product={editing || undefined} categories={categories} />
     </div>
   );
 }
 
-function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenChange: (v: boolean) => void; product?: Product }) {
+function ProductDialog({ open, onOpenChange, product, categories = [] }: { open: boolean; onOpenChange: (v: boolean) => void; product?: Product; categories?: string[] }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [category, setCategory] = useState("");
+  const [addingCategory, setAddingCategory] = useState(false);
   const [image, setImage] = useState("");
   const [deliveryInfo, setDeliveryInfo] = useState("");
   const [featured, setFeatured] = useState(false);
@@ -148,9 +151,10 @@ function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenC
       setName(product.name); setDescription(product.description); setPrice(String(product.price));
       setCategory(product.category); setImage(product.image); setDeliveryInfo(product.deliveryInfo);
       setFeatured(!!product.featured); setKeysText(product.keys.join("\n"));
+      setAddingCategory(!!product.category && !categories.includes(product.category));
     } else if (open) {
       setName(""); setDescription(""); setPrice(""); setCategory(""); setImage("");
-      setDeliveryInfo(""); setFeatured(false); setKeysText("");
+      setDeliveryInfo(""); setFeatured(false); setKeysText(""); setAddingCategory(categories.length === 0);
     }
   }, [product, open]);
 
@@ -178,7 +182,27 @@ function ProductDialog({ open, onOpenChange, product }: { open: boolean; onOpenC
         <div className="space-y-4">
           <div className="grid sm:grid-cols-2 gap-3">
             <div><Label>اسم المنتج *</Label><Input value={name} onChange={(e) => setName(e.target.value)} className="bg-secondary/50 mt-1" /></div>
-            <div><Label>التصنيف</Label><Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Loaders / Scripts..." className="bg-secondary/50 mt-1" /></div>
+            <div>
+              <Label>التصنيف</Label>
+              {addingCategory ? (
+                <div className="flex gap-2 mt-1">
+                  <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="اكتب اسم قسم جديد" className="bg-secondary/50" autoFocus />
+                  {categories.length > 0 && (
+                    <Button type="button" variant="outline" className="border-primary/50 shrink-0" onClick={() => { setAddingCategory(false); setCategory(categories[0] || ""); }}>
+                      اختيار من القائمة
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <Select value={category} onValueChange={(v) => { if (v === "__new__") { setAddingCategory(true); setCategory(""); } else { setCategory(v); } }}>
+                  <SelectTrigger className="bg-secondary/50 mt-1 w-full"><SelectValue placeholder="اختر القسم" /></SelectTrigger>
+                  <SelectContent>
+                    {categories.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                    <SelectItem value="__new__">+ إضافة قسم جديد</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           </div>
           <div><Label>الوصف</Label><Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="bg-secondary/50 mt-1" /></div>
           <div className="grid sm:grid-cols-2 gap-3">
