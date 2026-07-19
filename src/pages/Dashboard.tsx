@@ -428,9 +428,23 @@ function SectionsAdmin() {
                 onChange={(e) => setSections(sections.map((s, idx) => idx === i ? { ...s, title: e.target.value } : s))}
                 className="bg-secondary/50"
               />
-              <div className="text-xs text-muted-foreground mt-1">
-                {sec.type === "featured" ? "قسم المنتجات المميزة" : sec.type === "all" ? "قسم كل المنتجات" : `قسم تصنيف: ${sec.category}`}
-              </div>
+              {sec.type === "category" ? (
+                <div className="mt-2">
+                  <Select
+                    value={sec.category || ""}
+                    onValueChange={(v) => setSections(sections.map((s, idx) => idx === i ? { ...s, category: v, title: s.title === s.category ? v : s.title } : s))}
+                  >
+                    <SelectTrigger className="bg-secondary/50 h-8 text-xs w-full max-w-[220px]"><SelectValue placeholder="اختر التصنيف" /></SelectTrigger>
+                    <SelectContent>
+                      {categories.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground mt-1">
+                  {sec.type === "featured" ? "قسم المنتجات المميزة" : "قسم كل المنتجات"}
+                </div>
+              )}
             </div>
             {sec.type === "category" && (
               <Button size="sm" variant="outline" className="border-destructive/50 text-destructive" onClick={() => remove(i)}>
