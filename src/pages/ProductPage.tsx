@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Layout } from "@/components/Layout";
 import { useStore, cartActions, formatMoney } from "@/lib/store";
 import { ProductImage } from "@/components/ProductImage";
+import { RichDescription } from "@/components/RichDescription";
 import { Button } from "@/components/ui/button";
 import { ShoppingCart, ArrowRight, ShieldCheck, Zap, Package } from "lucide-react";
 import { useState } from "react";
@@ -13,6 +14,7 @@ export default function ProductPage() {
   const settings = useStore((s) => s.settings);
   const [qty, setQty] = useState(1);
   const [variantId, setVariantId] = useState<string | undefined>(undefined);
+  const [activeMedia, setActiveMedia] = useState<{ type: "image" | "gif" | "video"; url: string } | null>(null);
   const navigate = useNavigate();
 
   if (!product) {
@@ -25,11 +27,13 @@ export default function ProductPage() {
       </Layout>
     );
   }
-  const inStock = true; // stock hidden from public; assume available
   const hasVariants = !!(product.variants && product.variants.length > 0);
   const activeVariant = hasVariants ? (product.variants!.find((v) => v.id === variantId) || product.variants![0]) : null;
   const displayPrice = activeVariant ? activeVariant.price : product.price;
   const hasDiscount = !hasVariants && !!product.compareAtPrice && product.compareAtPrice > product.price;
+  const availableQty = activeVariant ? (activeVariant.keys?.length || 0) : (product.keys?.length || 0);
+  const inStock = availableQty > 0 || product.deliveryInfo.length > 0;
+  const gallery = product.gallery || [];
 
   return (
     <Layout>
@@ -39,9 +43,42 @@ export default function ProductPage() {
         </Link>
 
         <div className="grid md:grid-cols-2 gap-8">
-          <div className="relative">
-            <div className="absolute -inset-1 gradient-purple rounded-3xl blur-xl opacity-40" />
-            <ProductImage product={product} className="relative aspect-square rounded-3xl neon-border" />
+          <div>
+            <div className="relative">
+              <div className="absolute -inset-1 gradient-purple rounded-3xl blur-xl opacity-40" />
+              {activeMedia ? (
+                activeMedia.type === "video" ? (
+                  <video src={activeMedia.url} controls className="relative aspect-square w-full object-cover rounded-3xl neon-border" />
+                ) : (
+                  <img src={activeMedia.url} alt={product.name} className="relative aspect-square w-full object-cover rounded-3xl neon-border" />
+                )
+              ) : (
+                <ProductImage product={product} className="relative aspect-square rounded-3xl neon-border" />
+              )}
+            </div>
+            {gallery.length > 0 && (
+              <div className="flex gap-2 mt-3 flex-wrap">
+                <button
+                  onClick={() => setActiveMedia(null)}
+                  className={`w-16 h-16 rounded-lg overflow-hidden border-2 ${!activeMedia ? "border-primary" : "border-transparent"}`}
+                >
+                  <ProductImage product={product} className="w-full h-full" />
+                </button>
+                {gallery.map((g, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setActiveMedia(g)}
+                    className={`w-16 h-16 rounded-lg overflow-hidden border-2 flex items-center justify-center bg-secondary/50 ${activeMedia?.url === g.url ? "border-primary" : "border-transparent"}`}
+                  >
+                    {g.type === "video" ? (
+                      <video src={g.url} className="w-full h-full object-cover" muted />
+                    ) : (
+                      <img src={g.url} className="w-full h-full object-cover" alt="" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-4">
@@ -59,7 +96,15 @@ export default function ProductPage() {
               )}
             </div>
 
-            <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">{product.description}</p>
+            <RichDescription text={product.description} className="text-muted-foreground leading-relaxed" />
+
+            <div className="text-sm font-semibold">
+              {inStock ? (
+                <span className="text-primary">{availableQty > 0 ? `الكمية المتوفرة: ${availableQty}` : "متوفر"}</span>
+              ) : (
+                <span className="text-destructive">غير متوفر حاليًا</span>
+              )}
+            </div>
 
             {hasVariants && (
               <div className="glass neon-border rounded-xl p-4 flex flex-col gap-2">

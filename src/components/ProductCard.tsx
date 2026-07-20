@@ -8,7 +8,10 @@ import { toast } from "sonner";
 
 export function ProductCard({ product }: { product: Product }) {
   const currency = useStore((s) => s.settings.currency);
-  const inStock = product.keys.length > 0 || product.deliveryInfo.length > 0;
+  const totalQty = product.variants && product.variants.length > 0
+    ? product.variants.reduce((sum, v) => sum + (v.keys?.length || 0), 0)
+    : product.keys.length;
+  const inStock = totalQty > 0 || product.deliveryInfo.length > 0;
   return (
     <div className="group relative">
       <div className="absolute -inset-0.5 gradient-purple rounded-2xl opacity-0 group-hover:opacity-70 blur transition duration-500" />
@@ -24,7 +27,7 @@ export function ProductCard({ product }: { product: Product }) {
           </div>
           <div className="absolute top-3 left-3">
             <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${inStock ? "bg-emerald-500/80 text-white" : "bg-red-500/80 text-white"}`}>
-              {inStock ? "متوفر" : "نفذت الكمية"}
+              {inStock ? `متوفر (${totalQty})` : "نفذت الكمية"}
             </span>
           </div>
         </Link>

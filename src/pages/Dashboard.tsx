@@ -270,6 +270,10 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
   const [keysText, setKeysText] = useState("");
   const [compareAtPrice, setCompareAtPrice] = useState("");
   const [variants, setVariants] = useState<{ id: string; label: string; price: string; keysText: string }[]>([]);
+  const [gallery, setGallery] = useState<{ type: "image" | "gif" | "video"; url: string }[]>([]);
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  const [linkLabel, setLinkLabel] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
 
   useEffect(() => {
     if (product) {
@@ -279,12 +283,48 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
       setAddingCategory(!!product.category && !categories.includes(product.category));
       setCompareAtPrice(product.compareAtPrice != null ? String(product.compareAtPrice) : "");
       setVariants((product.variants || []).map((v) => ({ id: v.id, label: v.label, price: String(v.price), keysText: (v.keys || []).join("\n") })));
+      setGallery(product.gallery || []);
     } else if (open) {
       setName(""); setDescription(""); setPrice(""); setCategory(""); setImage("");
       setDeliveryInfo(""); setFeatured(false); setKeysText(""); setAddingCategory(categories.length === 0);
-      setCompareAtPrice(""); setVariants([]);
+      setCompareAtPrice(""); setVariants([]); setGallery([]);
     }
   }, [product, open]);
+
+  function insertLink() {
+    const label = linkLabel.trim() || "رابط";
+    const url = linkUrl.trim();
+    if (!url) { toast.error("أدخل الرابط أولًا"); return; }
+    const markdown = `[${label}](${url})`;
+    const el = descRef.current;
+    if (el) {
+      const start = el.selectionStart ?? description.length;
+      const end = el.selectionEnd ?? description.length;
+      const next = description.slice(0, start) + markdown + description.slice(end);
+      setDescription(next);
+      requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = start + markdown.length; });
+    } else {
+      setDescription((d) => d + markdown);
+    }
+    setLinkLabel(""); setLinkUrl("");
+  }
+
+  function addGalleryUrl(type: "image" | "gif" | "video", url: string) {
+    if (!url.trim()) return;
+    setGallery((g) => [...g, { type, url: url.trim() }]);
+  }
+  function removeGalleryItem(i: number) {
+    setGallery((g) => g.filter((_, idx) => idx !== i));
+  }
+  function onGalleryFile(e: React.ChangeEvent<HTMLInputElement>, type: "image" | "gif" | "video") {
+    const f = e.target.files?.[0]; if (!f) return;
+    const maxMb = type === "video" ? 8 : 4;
+    if (f.size > maxMb * 1024 * 1024) { toast.error(`الملف أكبر من ${maxMb}MB`); return; }
+    const r = new FileReader();
+    r.onload = () => setGallery((g) => [...g, { type, url: String(r.result) }]);
+    r.readAsDataURL(f);
+    e.target.value = "";
+  }
 
   function addVariant() {
     setVariants((v) => [...v, { id: "v" + Date.now() + Math.random().toString(36).slice(2, 6), label: "", price: "", keysText: "" }]);
@@ -315,6 +355,7 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
       category: category.trim() || "عام", image, deliveryInfo: deliveryInfo.trim(), featured, keys,
       compareAtPrice: compareAtPrice ? parseFloat(compareAtPrice) : undefined,
       variants: cleanVariants,
+      gallery,
     };
     if (product) { await productActions.update(product.id, data); toast.success("تم التعديل"); }
     else { await productActions.add(data); toast.success("تم إضافة المنتج"); }
@@ -330,6 +371,7 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
             <TabsTrigger value="basic">أساسي</TabsTrigger>
             <TabsTrigger value="pricing">الاشتراكات والخصم</TabsTrigger>
             <TabsTrigger value="delivery">التسليم والمفاتيح</TabsTrigger>
+            <TabsTrigger value="media">الوسائط</TabsTrigger>
           </TabsList>
 
           <TabsContent value="basic" className="space-y-4 mt-4">
@@ -357,7 +399,19 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
                 )}
               </div>
             </div>
-            <div><Label>الوصف</Label><Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="bg-secondary/50 mt-1" /></div>
+            <div>
+              <Label>الوصف</Label>
+              <Textarea ref={descRef} value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="bg-secondary/50 mt-1" />
+              <div className="flex flex-wrap items-center gap-2 mt-2 bg-secondary/30 rounded-lg p-2">
+                <span className="text-xs text-muted-foreground shrink-0">إضافة رابط:</span>
+                <Input value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} placeholder="نص الرابط (مثال: شاهد الفيديو)" className="bg-secondary/50 h-8 text-xs flex-1 min-w-[140px]" />
+                <Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://..." className="bg-secondary/50 h-8 text-xs flex-1 min-w-[140px]" />
+                <Button type="button" size="sm" variant="outline" className="border-primary/50 h-8" onClick={insertLink}>
+                  <Plus className="w-3 h-3 ml-1" /> إدراج
+                </Button>
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">يتم إدراج الرابط داخل الوصف ويظهر للعميل كنص قابل للنقر مباشرة (بدون نسخ).</div>
+            </div>
             <div className="grid sm:grid-cols-2 gap-3">
               <div><Label>السعر *</Label><Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="bg-secondary/50 mt-1" /></div>
               <div className="flex items-end"><div className="flex items-center gap-2 h-10"><Switch checked={featured} onCheckedChange={setFeatured} id="featured" /><Label htmlFor="featured">منتج مميز</Label></div></div>
@@ -451,6 +505,39 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="media" className="space-y-4 mt-4">
+            <div className="text-xs text-muted-foreground">أضف صور إضافية، GIF، أو مقطع فيديو لعرض المنتج أو شرحه. تظهر كصور مصغّرة أسفل الصورة الرئيسية في صفحة المنتج.</div>
+            <div className="grid sm:grid-cols-3 gap-2">
+              <label className="cursor-pointer px-3 py-2 rounded-lg bg-secondary hover:bg-primary/30 text-sm text-center">
+                رفع صورة<input type="file" accept="image/*" className="hidden" onChange={(e) => onGalleryFile(e, "image")} />
+              </label>
+              <label className="cursor-pointer px-3 py-2 rounded-lg bg-secondary hover:bg-primary/30 text-sm text-center">
+                رفع GIF<input type="file" accept="image/gif" className="hidden" onChange={(e) => onGalleryFile(e, "gif")} />
+              </label>
+              <label className="cursor-pointer px-3 py-2 rounded-lg bg-secondary hover:bg-primary/30 text-sm text-center">
+                رفع فيديو قصير<input type="file" accept="video/*" className="hidden" onChange={(e) => onGalleryFile(e, "video")} />
+              </label>
+            </div>
+            <GalleryUrlAdder onAdd={addGalleryUrl} />
+            {gallery.length > 0 && (
+              <div className="grid sm:grid-cols-4 gap-3 mt-2">
+                {gallery.map((g, i) => (
+                  <div key={i} className="relative rounded-lg overflow-hidden neon-border bg-secondary/40 aspect-square">
+                    {g.type === "video" ? (
+                      <video src={g.url} className="w-full h-full object-cover" muted />
+                    ) : (
+                      <img src={g.url} className="w-full h-full object-cover" alt="" />
+                    )}
+                    <span className="absolute bottom-1 right-1 text-[10px] bg-black/60 text-white px-1.5 py-0.5 rounded">
+                      {g.type === "video" ? "فيديو" : g.type === "gif" ? "GIF" : "صورة"}
+                    </span>
+                    <button onClick={() => removeGalleryItem(i)} className="absolute -top-1 -left-1 bg-destructive text-white w-6 h-6 rounded-full text-xs">×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>إلغاء</Button>
@@ -458,6 +545,28 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function GalleryUrlAdder({ onAdd }: { onAdd: (type: "image" | "gif" | "video", url: string) => void }) {
+  const [type, setType] = useState<"image" | "gif" | "video">("image");
+  const [url, setUrl] = useState("");
+  return (
+    <div className="flex flex-wrap items-center gap-2 bg-secondary/30 rounded-lg p-2">
+      <span className="text-xs text-muted-foreground shrink-0">أو أضف رابط مباشر:</span>
+      <Select value={type} onValueChange={(v) => setType(v as any)}>
+        <SelectTrigger className="bg-secondary/50 h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="image">صورة</SelectItem>
+          <SelectItem value="gif">GIF</SelectItem>
+          <SelectItem value="video">فيديو</SelectItem>
+        </SelectContent>
+      </Select>
+      <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." className="bg-secondary/50 h-8 text-xs flex-1 min-w-[160px]" />
+      <Button type="button" size="sm" variant="outline" className="border-primary/50 h-8" onClick={() => { onAdd(type, url); setUrl(""); }}>
+        <Plus className="w-3 h-3 ml-1" /> إضافة
+      </Button>
+    </div>
   );
 }
 

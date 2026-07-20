@@ -78,6 +78,7 @@ async function migrate() {
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS variants TEXT`);
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS "compareAtPrice" DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "couponCode" TEXT`);
+  await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS gallery TEXT`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount DOUBLE PRECISION DEFAULT 0`);
   await pool.query(`ALTER TABLE coupons ADD COLUMN IF NOT EXISTS "excludedProductIds" TEXT DEFAULT '[]'`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordId" TEXT`);
@@ -166,6 +167,7 @@ function rowToProduct(r) {
     featured: !!r.featured, createdAt: Number(r.createdAt),
     variants: r.variants ? JSON.parse(r.variants) : [],
     compareAtPrice: r.compareAtPrice != null ? Number(r.compareAtPrice) : undefined,
+    gallery: r.gallery ? JSON.parse(r.gallery) : [],
   };
 }
 function rowToOrder(r) {
@@ -195,6 +197,52 @@ async function allUsers() {
 const ADMIN_USER = process.env.ADMIN_USER || "North";
 const ADMIN_PASS = process.env.ADMIN_PASS || "North123";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || crypto.randomBytes(24).toString("hex");
+
+// -------- Discord bot: order notifications --------
+// Set DISCORD_BOT_TOKEN (the bot's token, NOT the OAuth client secret) and
+// DISCORD_NOTIFY_USER_ID as Railway env vars. The bot must share a server
+// with the recipient (or have DMs open) to be able to message them.
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || "";
+const DISCORD_NOTIFY_USER_ID = process.env.DISCORD_NOTIFY_USER_ID || "650307900090089503";
+let discordDmChannelId = null;
+async function getDiscordDmChannel() {
+  if (discordDmChannelId) return discordDmChannelId;
+  const res = await fetch("https://discord.com/api/v10/users/@me/channels", {
+    method: "POST",
+    headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ recipient_id: DISCORD_NOTIFY_USER_ID }),
+  });
+  if (!res.ok) throw new Error(`discord channel open failed: ${res.status} ${await res.text()}`);
+  const data = await res.json();
+  discordDmChannelId = data.id;
+  return discordDmChannelId;
+}
+async function notifyDiscordNewOrder(order) {
+  if (!DISCORD_BOT_TOKEN) { console.warn("[discord] DISCORD_BOT_TOKEN not set, skipping order notification"); return; }
+  try {
+    const channelId = await getDiscordDmChannel();
+    const itemsText = order.items.map((it) =>
+      `• ${it.productName} × ${it.quantity} — ${it.price} (${it.deliveryInfo ? it.deliveryInfo : "بدون تفاصيل تسليم"})`
+    ).join("\n") || "لا توجد عناصر";
+    const content =
+      `📦 **طلب جديد على NorthSite**\n` +
+      `**رقم الطلب:** ${order.id}\n` +
+      `**من:** ${order.username}\n` +
+      `**الإجمالي:** ${order.total}\n` +
+      (order.couponCode ? `**الكوبون:** ${order.couponCode} (خصم ${order.discount})\n` : "") +
+      `**المنتجات:**\n${itemsText}\n` +
+      (order.note ? `**ملاحظة العميل:** ${order.note}\n` : "") +
+      `**الحالة:** بانتظار المراجعة`;
+    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ content: content.slice(0, 1900) }),
+    });
+    if (!res.ok) console.error("[discord] send failed:", res.status, await res.text());
+  } catch (e) {
+    console.error("[discord] notify error:", e.message);
+  }
+}
 
 // -------- Discord OAuth2 --------
 // Set DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET / DISCORD_REDIRECT_URI / SITE_URL
@@ -527,7 +575,9 @@ app.post("/api/orders", asyncRoute(async (req, res) => {
     [id, username, JSON.stringify(items), total, receiptImage || "", note || "", Date.now(), appliedCoupon || null, discount]
   );
   const row = await one("SELECT * FROM orders WHERE id=$1", [id]);
-  res.json({ ok: true, id, order: rowToOrder(row) });
+  const order = rowToOrder(row);
+  notifyDiscordNewOrder(order); // fire-and-forget, never blocks the order response
+  res.json({ ok: true, id, order });
 }));
 
 // -------- Admin: products --------
@@ -535,12 +585,13 @@ app.post("/api/admin/products", requireAdmin, asyncRoute(async (req, res) => {
   const p = req.body || {};
   const id = "p" + crypto.randomBytes(4).toString("hex");
   await pool.query(
-    `INSERT INTO products (id,name,description,price,image,category,keys,"deliveryInfo",featured,"createdAt",variants,"compareAtPrice")
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    `INSERT INTO products (id,name,description,price,image,category,keys,"deliveryInfo",featured,"createdAt",variants,"compareAtPrice",gallery)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [id, p.name || "", p.description || "", Number(p.price) || 0, p.image || "",
      p.category || "", JSON.stringify(p.keys || []), p.deliveryInfo || "",
      p.featured ? 1 : 0, Date.now(),
-     JSON.stringify(p.variants || []), p.compareAtPrice != null && p.compareAtPrice !== "" ? Number(p.compareAtPrice) : null]
+     JSON.stringify(p.variants || []), p.compareAtPrice != null && p.compareAtPrice !== "" ? Number(p.compareAtPrice) : null,
+     JSON.stringify(p.gallery || [])]
   );
   res.json({ ok: true, id });
 }));
@@ -550,11 +601,12 @@ app.patch("/api/admin/products/:id", requireAdmin, asyncRoute(async (req, res) =
   if (!existing) return res.status(404).json({ error: "not found" });
   const merged = { ...rowToProduct(existing), ...p };
   await pool.query(
-    `UPDATE products SET name=$1,description=$2,price=$3,image=$4,category=$5,keys=$6,"deliveryInfo"=$7,featured=$8,variants=$9,"compareAtPrice"=$10 WHERE id=$11`,
+    `UPDATE products SET name=$1,description=$2,price=$3,image=$4,category=$5,keys=$6,"deliveryInfo"=$7,featured=$8,variants=$9,"compareAtPrice"=$10,gallery=$11 WHERE id=$12`,
     [merged.name, merged.description, Number(merged.price) || 0, merged.image,
      merged.category, JSON.stringify(merged.keys || []), merged.deliveryInfo,
      merged.featured ? 1 : 0, JSON.stringify(merged.variants || []),
      merged.compareAtPrice != null && merged.compareAtPrice !== "" ? Number(merged.compareAtPrice) : null,
+     JSON.stringify(merged.gallery || []),
      req.params.id]
   );
   res.json({ ok: true });

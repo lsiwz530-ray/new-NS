@@ -1,6 +1,7 @@
 // API-backed store — talks to the Express backend, syncs via polling.
 import { useSyncExternalStore } from "react";
 
+export type GalleryItem = { type: "image" | "gif" | "video"; url: string };
 export type ProductVariant = { id: string; label: string; price: number; keys?: string[] };
 export type Product = {
   id: string; name: string; description: string; price: number;
@@ -8,6 +9,7 @@ export type Product = {
   image: string; category: string; keys: string[]; deliveryInfo: string;
   featured?: boolean; createdAt: number;
   variants?: ProductVariant[];
+  gallery?: GalleryItem[];
 };
 export type OrderItem = {
   productId: string; productName: string; productDescription: string;
