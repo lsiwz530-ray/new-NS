@@ -33,7 +33,7 @@ export function ProductCarousel({ products }: { products: Product[] }) {
 
   if (!overflowing) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-8">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5 mt-8">
         {products.map((p) => <ProductCard key={p.id} product={p} />)}
       </div>
     );
@@ -63,13 +63,13 @@ export function ProductCarousel({ products }: { products: Product[] }) {
       <div
         ref={trackRef}
         onScroll={updateEdges}
-        className="flex gap-5 overflow-x-auto scrollbar-thin snap-x snap-mandatory scroll-smooth"
+        className="flex gap-3 sm:gap-5 overflow-x-auto scrollbar-thin snap-x snap-mandatory scroll-smooth"
       >
         {products.map((p) => (
           <div
             key={p.id}
             data-card
-            className="snap-start flex-shrink-0 w-[calc(50%-10px)] sm:w-[calc(50%-10px)] lg:w-[calc(25%-15px)]"
+            className="snap-start flex-shrink-0 w-[calc(50%-8px)] sm:w-[calc(50%-10px)] lg:w-[calc(25%-15px)]"
           >
             <ProductCard product={p} />
           </div>

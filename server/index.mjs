@@ -79,6 +79,12 @@ async function migrate() {
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS "compareAtPrice" DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "couponCode" TEXT`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount DOUBLE PRECISION DEFAULT 0`);
+  await pool.query(`ALTER TABLE coupons ADD COLUMN IF NOT EXISTS "excludedProductIds" TEXT DEFAULT '[]'`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordId" TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordAvatar" TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordBanner" TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordGlobalName" TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordAccent" INTEGER`);
 }
 
 const DEFAULT_SETTINGS = {
@@ -188,6 +194,20 @@ async function allUsers() {
 const ADMIN_USER = process.env.ADMIN_USER || "North";
 const ADMIN_PASS = process.env.ADMIN_PASS || "North123";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || crypto.randomBytes(24).toString("hex");
+
+// -------- Discord OAuth2 --------
+// Set DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET / DISCORD_REDIRECT_URI / SITE_URL
+// as Railway env vars in production. The fallbacks below are only so local/dev
+// runs don't crash — replace the secret in Railway and rotate it in the
+// Discord Developer Portal since it was shared in plain text once.
+const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID || "1473730011440873594";
+const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "nV_bYdV-EoLiOzD2jnxMGO1DH4yMOCyN";
+const SITE_URL = process.env.SITE_URL || "";
+function discordRedirectUri(req) {
+  if (process.env.DISCORD_REDIRECT_URI) return process.env.DISCORD_REDIRECT_URI;
+  const base = SITE_URL || `${req.protocol}://${req.get("host")}`;
+  return `${base}/api/auth/discord/callback`;
+}
 if (!process.env.ADMIN_TOKEN) {
   console.warn("WARNING: ADMIN_TOKEN not set — a random token was generated and will change on every restart. Set ADMIN_TOKEN in Railway variables.");
 }
@@ -253,7 +273,10 @@ function asyncRoute(fn) {
 app.get("/api/state", asyncRoute(async (req, res) => {
   const isAdmin = await isAdminToken(req.headers["x-admin-token"]);
   const uname = String(req.query.user || "").toLowerCase();
-  const products = (await allProducts()).map((p) => isAdmin ? p : { ...p, keys: [] });
+  const products = (await allProducts()).map((p) => isAdmin ? p : {
+    ...p, keys: [],
+    variants: (p.variants || []).map((v) => ({ ...v, keys: undefined })),
+  });
   const orders = (await allOrders())
     .filter((o) => isAdmin || (uname && o.username.toLowerCase() === uname))
     .map((o) => isAdmin ? o : { ...o, receiptImage: "" });
@@ -261,7 +284,9 @@ app.get("/api/state", asyncRoute(async (req, res) => {
   const staffList = isAdmin
     ? await q(`SELECT username, "createdAt" FROM staff ORDER BY "createdAt" DESC`)
     : [];
-  const coupons = isAdmin ? await q(`SELECT * FROM coupons ORDER BY "createdAt" DESC`) : [];
+  const coupons = isAdmin
+    ? (await q(`SELECT * FROM coupons ORDER BY "createdAt" DESC`)).map((c) => ({ ...c, excludedProductIds: JSON.parse(c.excludedProductIds || "[]") }))
+    : [];
   res.json({ products, orders, users, staff: staffList, settings: await getSettings(), coupons });
 }));
 
@@ -312,22 +337,134 @@ app.post("/api/users/login", asyncRoute(async (req, res) => {
   res.json({ ok: true, username: uname });
 }));
 
-// -------- Coupons --------
+// -------- Discord OAuth2 login --------
+app.get("/api/auth/discord", (req, res) => {
+  const redirectUri = discordRedirectUri(req);
+  const url = "https://discord.com/api/oauth2/authorize?" + new URLSearchParams({
+    client_id: DISCORD_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "identify",
+    prompt: "consent",
+  });
+  res.redirect(url);
+});
+
+app.get("/api/auth/discord/callback", asyncRoute(async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.redirect("/login?discord_error=1");
+  try {
+    const redirectUri = discordRedirectUri(req);
+    const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: DISCORD_CLIENT_ID,
+        client_secret: DISCORD_CLIENT_SECRET,
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: redirectUri,
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) return res.redirect("/login?discord_error=1");
+
+    const userRes = await fetch("https://discord.com/api/users/@me", {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    const du = await userRes.json();
+    if (!du?.id) return res.redirect("/login?discord_error=1");
+
+    const avatar = du.avatar
+      ? `https://cdn.discordapp.com/avatars/${du.id}/${du.avatar}.${du.avatar.startsWith("a_") ? "gif" : "png"}?size=256`
+      : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(du.id) >> 22n) % 6n)}.png`;
+    const banner = du.banner
+      ? `https://cdn.discordapp.com/banners/${du.id}/${du.banner}.${du.banner.startsWith("a_") ? "gif" : "png"}?size=900`
+      : null;
+    const globalName = du.global_name || du.username || ("لاعب" + du.id.slice(-4));
+
+    const existing = await one(`SELECT * FROM users WHERE "discordId"=$1`, [du.id]);
+    let finalUsername;
+    if (existing) {
+      finalUsername = existing.username;
+      await pool.query(
+        `UPDATE users SET "discordAvatar"=$1, "discordBanner"=$2, "discordGlobalName"=$3, "discordAccent"=$4 WHERE username=$5`,
+        [avatar, banner, globalName, du.accent_color ?? null, finalUsername]
+      );
+    } else {
+      // Pick a free username based on the Discord display name.
+      const base = String(globalName).replace(/[^\p{L}\p{N}_ ]/gu, "").trim().slice(0, 18) || "player";
+      let candidate = base; let n = 1;
+      while (await one("SELECT username FROM users WHERE lower(username)=lower($1)", [candidate])) {
+        candidate = `${base}${n}`; n++;
+      }
+      finalUsername = candidate;
+      await pool.query(
+        `INSERT INTO users (username, password, "createdAt", "discordId", "discordAvatar", "discordBanner", "discordGlobalName", "discordAccent")
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [finalUsername, null, Date.now(), du.id, avatar, banner, globalName, du.accent_color ?? null]
+      );
+    }
+
+    // One-time-use handoff token: the frontend can't read Set-Cookie across
+    // the redirect chain reliably, so we hand a short-lived token in the URL
+    // and immediately exchange + delete it client-side.
+    const handoff = crypto.randomBytes(24).toString("hex");
+    await pool.query(
+      `INSERT INTO kv (k, v) VALUES ($1, $2) ON CONFLICT(k) DO UPDATE SET v=excluded.v`,
+      ["discord_handoff:" + handoff, JSON.stringify({ username: finalUsername, createdAt: Date.now() })]
+    );
+    res.redirect("/discord-login?token=" + handoff);
+  } catch (e) {
+    console.error("[discord oauth]", e);
+    res.redirect("/login?discord_error=1");
+  }
+}));
+
+app.post("/api/auth/discord/session", asyncRoute(async (req, res) => {
+  const token = String(req.body?.token || "");
+  const row = await one("SELECT v FROM kv WHERE k=$1", ["discord_handoff:" + token]);
+  if (!row) return res.status(400).json({ error: "invalid_or_expired" });
+  await pool.query("DELETE FROM kv WHERE k=$1", ["discord_handoff:" + token]);
+  let data;
+  try { data = JSON.parse(row.v); } catch { return res.status(400).json({ error: "invalid" }); }
+  // Handoff tokens are single-use and only valid for 5 minutes.
+  if (Date.now() - data.createdAt > 5 * 60 * 1000) return res.status(400).json({ error: "expired" });
+  res.json({ ok: true, username: data.username });
+}));
+
+app.get("/api/users/:username/discord-profile", asyncRoute(async (req, res) => {
+  const row = await one(
+    `SELECT "discordId", "discordAvatar", "discordBanner", "discordGlobalName", "discordAccent" FROM users WHERE lower(username)=lower($1)`,
+    [req.params.username]
+  );
+  if (!row || !row.discordId) return res.json({ linked: false });
+  res.json({
+    linked: true,
+    avatar: row.discordAvatar,
+    banner: row.discordBanner,
+    globalName: row.discordGlobalName,
+    accentColor: row.discordAccent,
+  });
+}));
+
+
 app.post("/api/coupons/validate", asyncRoute(async (req, res) => {
   const code = String(req.body?.code || "").trim().toUpperCase();
   if (!code) return res.json({ valid: false });
   const row = await one("SELECT * FROM coupons WHERE code=$1", [code]);
   if (!row || !row.active) return res.json({ valid: false });
-  res.json({ valid: true, code: row.code, percent: row.percent });
+  res.json({ valid: true, code: row.code, percent: row.percent, excludedProductIds: JSON.parse(row.excludedProductIds || "[]") });
 }));
 app.post("/api/admin/coupons", requireAdmin, asyncRoute(async (req, res) => {
   const code = String(req.body?.code || "").trim().toUpperCase();
   const percent = Math.max(1, Math.min(100, Number(req.body?.percent) || 0));
+  const excludedProductIds = Array.isArray(req.body?.excludedProductIds) ? req.body.excludedProductIds : [];
   if (!code || !percent) return res.status(400).json({ error: "invalid" });
   await pool.query(
-    `INSERT INTO coupons (code, percent, active, "createdAt") VALUES ($1,$2,1,$3)
-     ON CONFLICT(code) DO UPDATE SET percent=excluded.percent, active=1`,
-    [code, percent, Date.now()]
+    `INSERT INTO coupons (code, percent, active, "createdAt", "excludedProductIds") VALUES ($1,$2,1,$3,$4)
+     ON CONFLICT(code) DO UPDATE SET percent=excluded.percent, active=1, "excludedProductIds"=excluded."excludedProductIds"`,
+    [code, percent, Date.now(), JSON.stringify(excludedProductIds)]
   );
   res.json({ ok: true });
 }));
@@ -361,6 +498,7 @@ app.post("/api/orders", asyncRoute(async (req, res) => {
       productId: p.id, productName: variantLabel ? `${p.name} — ${variantLabel}` : p.name,
       productDescription: p.description,
       price, quantity: qty, assignedKeys: [], deliveryInfo: p.deliveryInfo,
+      variantId: ci.variantId || null,
     });
     total += price * qty;
   }
@@ -371,7 +509,9 @@ app.post("/api/orders", asyncRoute(async (req, res) => {
   if (couponCode) {
     const cr = await one("SELECT * FROM coupons WHERE code=$1", [String(couponCode).trim().toUpperCase()]);
     if (cr && cr.active) {
-      discount = Math.round((total * cr.percent) / 100 * 100) / 100;
+      const excluded = new Set(JSON.parse(cr.excludedProductIds || "[]"));
+      const discountableTotal = items.reduce((sum, it) => excluded.has(it.productId) ? sum : sum + it.price * it.quantity, 0);
+      discount = Math.round((discountableTotal * cr.percent) / 100 * 100) / 100;
       appliedCoupon = cr.code;
       total = Math.max(0, total - discount);
     }
@@ -438,10 +578,23 @@ app.post("/api/admin/orders/:id/complete", requireAdmin, asyncRoute(async (req, 
       if (!p) { items.push(it); continue; }
       const need = it.quantity - it.assignedKeys.length;
       if (need <= 0) { items.push(it); continue; }
-      const taken = p.keys.slice(0, need);
-      p.keys = p.keys.slice(need);
-      await client.query('UPDATE products SET keys=$1 WHERE id=$2', [JSON.stringify(p.keys), p.id]);
-      items.push({ ...it, assignedKeys: [...it.assignedKeys, ...taken] });
+
+      if (it.variantId && Array.isArray(p.variants) && p.variants.some((v) => v.id === it.variantId)) {
+        // Subscription-tab product: pull keys from that specific variant's own pool
+        // so monthly/weekly/etc keys never mix with one another.
+        const vi = p.variants.findIndex((v) => v.id === it.variantId);
+        const variant = p.variants[vi];
+        const vKeys = Array.isArray(variant.keys) ? variant.keys : [];
+        const taken = vKeys.slice(0, need);
+        p.variants[vi] = { ...variant, keys: vKeys.slice(need) };
+        await client.query('UPDATE products SET variants=$1 WHERE id=$2', [JSON.stringify(p.variants), p.id]);
+        items.push({ ...it, assignedKeys: [...it.assignedKeys, ...taken] });
+      } else {
+        const taken = p.keys.slice(0, need);
+        p.keys = p.keys.slice(need);
+        await client.query('UPDATE products SET keys=$1 WHERE id=$2', [JSON.stringify(p.keys), p.id]);
+        items.push({ ...it, assignedKeys: [...it.assignedKeys, ...taken] });
+      }
     }
     await client.query(
       `UPDATE orders SET items=$1, status='completed', "completedAt"=$2 WHERE id=$3`,

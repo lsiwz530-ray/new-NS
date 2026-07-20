@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { MessageCircle, X, Send } from "lucide-react";
 import { useStore, chatActions, type ChatMessage } from "@/lib/store";
 import { useLang } from "@/lib/i18n";
@@ -36,6 +37,20 @@ export function ChatWidget() {
   const dragStart = useRef({ x: 0, y: 0, px: 0, py: 0 });
   const lastCount = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Keep the bubble inside the viewport at all times (e.g. after a resize
+  // or orientation change) so it can never end up off-screen or hidden.
+  useEffect(() => {
+    function clamp() {
+      setPos((p: { x: number; y: number }) => ({
+        x: Math.min(Math.max(8, p.x), window.innerWidth - 64),
+        y: Math.min(Math.max(8, p.y), window.innerHeight - 64),
+      }));
+    }
+    clamp();
+    window.addEventListener("resize", clamp);
+    return () => window.removeEventListener("resize", clamp);
+  }, []);
 
   const poll = useCallback(async () => {
     if (!currentUser) return;
@@ -85,14 +100,15 @@ export function ChatWidget() {
   }
 
   if (!currentUser) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <>
       <button
         onPointerDown={onDragStart}
         onPointerMove={onDragMove}
         onPointerUp={onDragEnd}
-        style={{ position: "fixed", right: pos.x, bottom: pos.y, zIndex: 90 }}
+        style={{ position: "fixed", right: pos.x, bottom: pos.y, zIndex: 9999 }}
         onClick={() => !dragging.current && setOpen((v) => !v)}
         className="w-16 h-16 rounded-full gradient-purple neon-glow animate-chat-pulse flex flex-col items-center justify-center text-white touch-none select-none cursor-grab active:cursor-grabbing"
         aria-label={t("chatPrompt")}
@@ -101,7 +117,7 @@ export function ChatWidget() {
       </button>
       {!open && (
         <div
-          style={{ position: "fixed", right: pos.x + 72, bottom: pos.y + 20, zIndex: 90 }}
+          style={{ position: "fixed", right: pos.x + 72, bottom: pos.y + 20, zIndex: 9999 }}
           className="glass neon-border rounded-full px-3 py-1.5 text-xs font-semibold pointer-events-none hidden sm:block"
         >
           {t("chatPrompt")}
@@ -110,7 +126,7 @@ export function ChatWidget() {
 
       {open && (
         <div
-          style={{ position: "fixed", right: pos.x, bottom: pos.y + 76, zIndex: 91 }}
+          style={{ position: "fixed", right: pos.x, bottom: pos.y + 76, zIndex: 9999 }}
           className="w-[340px] max-w-[90vw] h-[440px] glass neon-border rounded-2xl flex flex-col overflow-hidden page-transition"
         >
           <div className="gradient-purple px-4 py-3 flex items-center justify-between text-white">
@@ -150,6 +166,7 @@ export function ChatWidget() {
           </div>
         </div>
       )}
-    </>
+    </>,
+    document.body,
   );
 }

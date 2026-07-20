@@ -13,6 +13,7 @@ import Login from "@/pages/Login";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import OrderPage from "@/pages/OrderPage";
+import DiscordLogin from "@/pages/DiscordLogin";
 
 function NotFound() {
   return (
@@ -55,6 +56,7 @@ const routes = [
   createRoute({ getParentRoute: () => rootRoute, path: "/auth", component: Auth }),
   createRoute({ getParentRoute: () => rootRoute, path: "/dashboard", component: Dashboard }),
   createRoute({ getParentRoute: () => rootRoute, path: "/order/$id", component: OrderPage }),
+  createRoute({ getParentRoute: () => rootRoute, path: "/discord-login", component: DiscordLogin }),
 ];
 
 const routeTree = rootRoute.addChildren(routes);

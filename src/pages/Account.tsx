@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
-import { useStore, formatMoney, type Order } from "@/lib/store";
+import { useStore, formatMoney, userActions, type Order, type DiscordProfile } from "@/lib/store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Package, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { OrderDetailsView } from "@/components/OrderDetails";
@@ -15,6 +15,12 @@ export default function Account() {
     () => allOrders.filter((o) => o.username === currentUser),
     [allOrders, currentUser]
   );
+  const [discordProfile, setDiscordProfile] = useState<DiscordProfile | null>(null);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    userActions.fetchDiscordProfile(currentUser).then(setDiscordProfile);
+  }, [currentUser]);
 
   if (!currentUser) {
     return (
@@ -30,14 +36,36 @@ export default function Account() {
   return (
     <Layout>
       <div className="mx-auto max-w-5xl px-4 py-12">
-        <div className="glass neon-border rounded-2xl p-6 mb-6 flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full gradient-purple neon-glow flex items-center justify-center text-2xl font-black text-white font-display">
-            {currentUser[0].toUpperCase()}
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-widest">أهلًا</div>
-            <h1 className="font-display text-3xl font-black neon-text-strong">{currentUser}</h1>
-            <div className="text-sm text-muted-foreground">{orders.length} طلب</div>
+        <div className="glass neon-border rounded-2xl overflow-hidden mb-6">
+          {discordProfile?.linked && discordProfile.banner ? (
+            <div className="h-28 sm:h-36 w-full bg-cover bg-center" style={{ backgroundImage: `url(${discordProfile.banner})` }} />
+          ) : discordProfile?.linked ? (
+            <div className="h-20 w-full" style={{ background: discordProfile.accentColor != null ? `#${discordProfile.accentColor.toString(16).padStart(6, "0")}` : undefined }} />
+          ) : null}
+          <div className="p-6 flex items-center gap-4">
+            {discordProfile?.linked && discordProfile.avatar ? (
+              <img
+                src={discordProfile.avatar}
+                alt={currentUser}
+                className="w-16 h-16 rounded-full neon-glow object-cover border-2 border-background -mt-2"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-full gradient-purple neon-glow flex items-center justify-center text-2xl font-black text-white font-display">
+                {currentUser[0].toUpperCase()}
+              </div>
+            )}
+            <div>
+              <div className="text-xs text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
+                أهلًا
+                {discordProfile?.linked && (
+                  <span className="inline-flex items-center gap-1 text-[10px] bg-[#5865F2]/20 text-[#8b96ff] px-2 py-0.5 rounded-full font-bold">
+                    مرتبط بديسكورد
+                  </span>
+                )}
+              </div>
+              <h1 className="font-display text-3xl font-black neon-text-strong">{currentUser}</h1>
+              <div className="text-sm text-muted-foreground">{orders.length} طلب</div>
+            </div>
           </div>
         </div>
 

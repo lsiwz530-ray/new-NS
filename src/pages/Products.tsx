@@ -33,7 +33,7 @@ export default function Products() {
         {filtered.length === 0 ? (
           <div className="text-center py-20 text-muted-foreground">لا توجد منتجات</div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-5">
             {filtered.map((p) => <ProductCard key={p.id} product={p} />)}
           </div>
         )}

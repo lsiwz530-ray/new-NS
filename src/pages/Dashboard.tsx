@@ -91,18 +91,25 @@ export default function Dashboard() {
 // ---------- Coupons ----------
 function CouponsAdmin() {
   const coupons = useStore((s) => s.coupons);
+  const products = useStore((s) => s.products);
   const [code, setCode] = useState("");
   const [percent, setPercent] = useState("");
+  const [excluded, setExcluded] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  function toggleExcluded(id: string) {
+    setExcluded((e) => e.includes(id) ? e.filter((x) => x !== id) : [...e, id]);
+  }
 
   async function add() {
     if (!code.trim() || !percent) { toast.error("أدخل الكود ونسبة الخصم"); return; }
     const p = Math.max(1, Math.min(100, parseInt(percent) || 0));
     setSaving(true);
     try {
-      await couponActions.add(code.trim().toUpperCase(), p);
+      await couponActions.add(code.trim().toUpperCase(), p, excluded);
       toast.success("تم إضافة الكوبون");
-      setCode(""); setPercent("");
+      setCode(""); setPercent(""); setExcluded([]);
     } catch { toast.error("تعذر إضافة الكوبون"); }
     setSaving(false);
   }
@@ -120,6 +127,36 @@ function CouponsAdmin() {
             <Label className="text-xs text-muted-foreground">نسبة الخصم %</Label>
             <Input type="number" min={1} max={100} value={percent} onChange={(e) => setPercent(e.target.value)} placeholder="مثال: 20" className="bg-secondary/50 mt-1" />
           </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">منتجات مستثناة من الخصم (اختياري)</Label>
+            <button
+              type="button"
+              onClick={() => setPickerOpen((v) => !v)}
+              className="w-full mt-1 bg-secondary/50 border border-primary/20 rounded-md px-3 py-2 text-sm text-right flex items-center justify-between"
+            >
+              <span className="text-muted-foreground">
+                {excluded.length === 0 ? "كل المنتجات تتأثر بالكوبون" : `${excluded.length} منتج مستثنى`}
+              </span>
+              <span className="text-xs">▾</span>
+            </button>
+            {pickerOpen && (
+              <div className="mt-1 max-h-56 overflow-y-auto scrollbar-thin border border-primary/20 rounded-md bg-secondary/30 p-2 space-y-1">
+                {products.length === 0 && <div className="text-xs text-muted-foreground p-2">لا توجد منتجات بعد</div>}
+                {products.map((p) => (
+                  <label key={p.id} className="flex items-center gap-2 text-sm px-2 py-1.5 rounded hover:bg-primary/10 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={excluded.includes(p.id)}
+                      onChange={() => toggleExcluded(p.id)}
+                      className="accent-primary"
+                    />
+                    <span className="truncate">{p.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="text-[11px] text-muted-foreground mt-1">المنتجات المختارة هنا ما راح ينطبق عليها خصم هذا الكوبون، والباقي ينخصم عادي.</div>
+          </div>
           <Button onClick={add} disabled={saving} className="w-full gradient-purple neon-glow">
             <Plus className="w-4 h-4 ml-1" /> إضافة الكوبون
           </Button>
@@ -135,7 +172,10 @@ function CouponsAdmin() {
               <div className="w-11 h-11 rounded-lg gradient-purple neon-glow flex items-center justify-center text-white shrink-0"><Tag className="w-5 h-5" /></div>
               <div className="flex-1 min-w-0">
                 <div className="font-mono font-bold">{c.code}</div>
-                <div className="text-xs text-muted-foreground">خصم {c.percent}%</div>
+                <div className="text-xs text-muted-foreground">
+                  خصم {c.percent}%
+                  {!!c.excludedProductIds?.length && ` • ${c.excludedProductIds.length} منتج مستثنى`}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <Switch checked={!!c.active} onCheckedChange={(v) => couponActions.setActive(c.code, v)} />
@@ -184,7 +224,11 @@ function ProductsAdmin() {
                 <div className="font-bold truncate">{p.name}</div>
                 {p.featured && <Badge className="gradient-purple">مميز</Badge>}
               </div>
-              <div className="text-xs text-muted-foreground">{p.category} • {p.keys.length} مفتاح متاح</div>
+              <div className="text-xs text-muted-foreground">
+                {p.category} • {p.variants && p.variants.length > 0
+                  ? p.variants.map((v) => `${v.label}: ${(v.keys || []).length}`).join(" • ")
+                  : `${p.keys.length} مفتاح متاح`}
+              </div>
               <div className="text-sm font-bold neon-text mt-1 flex items-center gap-2">
                 {p.variants && p.variants.length > 0 ? (
                   <span>من {formatMoney(Math.min(...p.variants.map((v) => v.price)))} ({p.variants.length} خيارات اشتراك)</span>
@@ -225,7 +269,7 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
   const [featured, setFeatured] = useState(false);
   const [keysText, setKeysText] = useState("");
   const [compareAtPrice, setCompareAtPrice] = useState("");
-  const [variants, setVariants] = useState<{ id: string; label: string; price: string }[]>([]);
+  const [variants, setVariants] = useState<{ id: string; label: string; price: string; keysText: string }[]>([]);
 
   useEffect(() => {
     if (product) {
@@ -234,7 +278,7 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
       setFeatured(!!product.featured); setKeysText(product.keys.join("\n"));
       setAddingCategory(!!product.category && !categories.includes(product.category));
       setCompareAtPrice(product.compareAtPrice != null ? String(product.compareAtPrice) : "");
-      setVariants((product.variants || []).map((v) => ({ id: v.id, label: v.label, price: String(v.price) })));
+      setVariants((product.variants || []).map((v) => ({ id: v.id, label: v.label, price: String(v.price), keysText: (v.keys || []).join("\n") })));
     } else if (open) {
       setName(""); setDescription(""); setPrice(""); setCategory(""); setImage("");
       setDeliveryInfo(""); setFeatured(false); setKeysText(""); setAddingCategory(categories.length === 0);
@@ -243,9 +287,9 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
   }, [product, open]);
 
   function addVariant() {
-    setVariants((v) => [...v, { id: "v" + Date.now() + Math.random().toString(36).slice(2, 6), label: "", price: "" }]);
+    setVariants((v) => [...v, { id: "v" + Date.now() + Math.random().toString(36).slice(2, 6), label: "", price: "", keysText: "" }]);
   }
-  function updateVariant(i: number, patch: Partial<{ label: string; price: string }>) {
+  function updateVariant(i: number, patch: Partial<{ label: string; price: string; keysText: string }>) {
     setVariants((v) => v.map((x, idx) => idx === i ? { ...x, ...patch } : x));
   }
   function removeVariant(i: number) {
@@ -262,7 +306,10 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
     const keys = keysText.split("\n").map((k) => k.trim()).filter(Boolean);
     const cleanVariants = variants
       .filter((v) => v.label.trim() && v.price)
-      .map((v) => ({ id: v.id, label: v.label.trim(), price: parseFloat(v.price) || 0 }));
+      .map((v) => ({
+        id: v.id, label: v.label.trim(), price: parseFloat(v.price) || 0,
+        keys: v.keysText.split("\n").map((k) => k.trim()).filter(Boolean),
+      }));
     const data = {
       name: name.trim(), description: description.trim(), price: parseFloat(price) || 0,
       category: category.trim() || "عام", image, deliveryInfo: deliveryInfo.trim(), featured, keys,
@@ -367,11 +414,42 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
               <Label>معلومات التسليم (تظهر للعميل بعد الشراء)</Label>
               <Textarea value={deliveryInfo} onChange={(e) => setDeliveryInfo(e.target.value)} placeholder="رابط اللودر، تعليمات..." rows={3} className="bg-secondary/50 mt-1" />
             </div>
-            <div>
-              <Label className="flex items-center gap-1"><Key className="w-4 h-4" /> المفاتيح (سطر لكل مفتاح)</Label>
-              <Textarea value={keysText} onChange={(e) => setKeysText(e.target.value)} placeholder={"KEY-0001\nKEY-0002"} rows={6} className="bg-secondary/50 mt-1 font-mono text-sm" />
-              <div className="text-xs text-muted-foreground mt-1">تُعطى بالترتيب. كل مفتاح يُسلَّم في رسالة منفصلة للعميل.</div>
-            </div>
+
+            {variants.length > 0 ? (
+              <div>
+                <Label className="flex items-center gap-1 mb-1"><Key className="w-4 h-4" /> مفاتيح كل خيار اشتراك</Label>
+                <div className="text-xs text-muted-foreground mb-3">هذا المنتج فيه خيارات اشتراك، فكل خيار (تاب) له مخزون مفاتيح منفصل بالكامل — ما تختلط مفاتيح الشهري بالاسبوعي.</div>
+                <Tabs defaultValue={variants[0]?.id} dir="rtl">
+                  <TabsList className="bg-secondary/50 flex-wrap h-auto">
+                    {variants.map((v) => (
+                      <TabsTrigger key={v.id} value={v.id} className="text-xs">
+                        {v.label.trim() || "بدون اسم"}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                  {variants.map((v, i) => (
+                    <TabsContent key={v.id} value={v.id} className="mt-3">
+                      <Textarea
+                        value={v.keysText}
+                        onChange={(e) => updateVariant(i, { keysText: e.target.value })}
+                        placeholder={"KEY-0001\nKEY-0002"}
+                        rows={6}
+                        className="bg-secondary/50 font-mono text-sm"
+                      />
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {v.keysText.split("\n").map((k) => k.trim()).filter(Boolean).length} مفتاح متاح لخيار «{v.label.trim() || "بدون اسم"}»
+                      </div>
+                    </TabsContent>
+                  ))}
+                </Tabs>
+              </div>
+            ) : (
+              <div>
+                <Label className="flex items-center gap-1"><Key className="w-4 h-4" /> المفاتيح (سطر لكل مفتاح)</Label>
+                <Textarea value={keysText} onChange={(e) => setKeysText(e.target.value)} placeholder={"KEY-0001\nKEY-0002"} rows={6} className="bg-secondary/50 mt-1 font-mono text-sm" />
+                <div className="text-xs text-muted-foreground mt-1">تُعطى بالترتيب. كل مفتاح يُسلَّم في رسالة منفصلة للعميل.</div>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
         <DialogFooter>

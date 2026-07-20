@@ -29,33 +29,33 @@ export function ProductCard({ product }: { product: Product }) {
           </div>
         </Link>
 
-        <div className="p-4 flex flex-col flex-1 gap-2">
-          <div className="text-[11px] uppercase tracking-widest text-primary/80 font-bold">{product.category}</div>
+        <div className="p-2.5 sm:p-4 flex flex-col flex-1 gap-1.5 sm:gap-2">
+          <div className="text-[9px] sm:text-[11px] uppercase tracking-widest text-primary/80 font-bold">{product.category}</div>
           <Link to="/product/$id" params={{ id: product.id }}>
-            <h3 className="font-display font-bold text-lg leading-tight line-clamp-1 hover:neon-text transition">{product.name}</h3>
+            <h3 className="font-display font-bold text-sm sm:text-lg leading-tight line-clamp-1 hover:neon-text transition">{product.name}</h3>
           </Link>
-          <p className="text-sm text-muted-foreground line-clamp-2">{product.description}</p>
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-primary/20">
-            <div className="flex flex-col">
+          <p className="hidden sm:block text-sm text-muted-foreground line-clamp-2">{product.description}</p>
+          <div className="flex items-center justify-between mt-1 sm:mt-3 pt-1.5 sm:pt-3 border-t border-primary/20 gap-1">
+            <div className="flex flex-col min-w-0">
               {product.variants && product.variants.length > 0 && (
-                <span className="text-[10px] text-muted-foreground">يبدأ من</span>
+                <span className="text-[9px] sm:text-[10px] text-muted-foreground">يبدأ من</span>
               )}
-              <div className="flex items-center gap-2">
-                <div className="font-display text-xl font-black neon-text">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <div className="font-display text-sm sm:text-xl font-black neon-text">
                   {formatMoney(product.variants && product.variants.length > 0 ? Math.min(...product.variants.map((v) => v.price)) : product.price, currency)}
                 </div>
                 {!product.variants?.length && product.compareAtPrice && product.compareAtPrice > product.price && (
-                  <div className="text-xs text-muted-foreground line-through">{formatMoney(product.compareAtPrice, currency)}</div>
+                  <div className="text-[10px] sm:text-xs text-muted-foreground line-through">{formatMoney(product.compareAtPrice, currency)}</div>
                 )}
               </div>
             </div>
             <Button
               size="sm"
               onClick={() => { cartActions.add(product.id); toast.success("تمت الإضافة للسلة"); }}
-              className="gradient-purple neon-glow"
+              className="gradient-purple neon-glow shrink-0 !px-2 sm:!px-3 !h-8 sm:!h-9 text-xs sm:text-sm"
               disabled={!inStock}
             >
-              <ShoppingCart className="w-4 h-4 ml-1" /> أضف
+              <ShoppingCart className="w-3.5 h-3.5 sm:w-4 sm:h-4 sm:ml-1" /> <span className="hidden sm:inline">أضف</span>
             </Button>
           </div>
         </div>

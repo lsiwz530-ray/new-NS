@@ -1,7 +1,7 @@
 // API-backed store — talks to the Express backend, syncs via polling.
 import { useSyncExternalStore } from "react";
 
-export type ProductVariant = { id: string; label: string; price: number };
+export type ProductVariant = { id: string; label: string; price: number; keys?: string[] };
 export type Product = {
   id: string; name: string; description: string; price: number;
   compareAtPrice?: number;
@@ -12,6 +12,7 @@ export type Product = {
 export type OrderItem = {
   productId: string; productName: string; productDescription: string;
   price: number; quantity: number; assignedKeys: string[]; deliveryInfo: string;
+  variantId?: string | null;
 };
 export type Order = {
   id: string; username: string; items: OrderItem[]; total: number;
@@ -22,13 +23,14 @@ export type Order = {
   couponCode?: string; discount?: number;
 };
 export type User = { username: string; createdAt: number };
+export type DiscordProfile = { linked: boolean; avatar?: string; banner?: string; globalName?: string; accentColor?: number | null };
 export type StaffUser = { username: string; createdAt: number };
 export type HomeSection = {
   id: string; type: "featured" | "all" | "category" | "reviews" | "banners"; title: string;
   category?: string; productIds?: string[];
 };
 export type IbanEntry = { id: string; bankName: string; accountName: string; iban: string };
-export type Coupon = { code: string; percent: number; active: boolean; createdAt: number };
+export type Coupon = { code: string; percent: number; active: boolean; createdAt: number; excludedProductIds?: string[] };
 export type SiteSettings = {
   siteName: string; tagline: string; heroTitle: string; heroSubtitle: string;
   iban: string; bankName: string; accountName: string; phone: string;
@@ -230,6 +232,29 @@ export const userActions = {
     }
   },
   logout() { set({ currentUser: null }); saveClient(); fetchState(); },
+  async loginWithDiscordToken(token: string): Promise<LoginResult> {
+    try {
+      const res = await fetch("/api/auth/discord/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) return { ok: false, error: "تعذر تسجيل الدخول عبر ديسكورد" };
+      set({ currentUser: data.username }); saveClient(); fetchState();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "تعذر تسجيل الدخول عبر ديسكورد" };
+    }
+  },
+  async fetchDiscordProfile(username: string): Promise<DiscordProfile> {
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(username)}/discord-profile`);
+      return await res.json();
+    } catch {
+      return { linked: false };
+    }
+  },
 };
 
 // ---------- Admin ----------
@@ -344,8 +369,8 @@ export const couponActions = {
       return { valid: false };
     }
   },
-  async add(code: string, percent: number) {
-    await api("/api/admin/coupons", { method: "POST", body: JSON.stringify({ code, percent }) });
+  async add(code: string, percent: number, excludedProductIds: string[] = []) {
+    await api("/api/admin/coupons", { method: "POST", body: JSON.stringify({ code, percent, excludedProductIds }) });
     await fetchState();
   },
   async setActive(code: string, active: boolean) {
