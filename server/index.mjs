@@ -68,10 +68,17 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS visits (
       id TEXT PRIMARY KEY, path TEXT, ip TEXT, country TEXT, city TEXT, "createdAt" BIGINT
     );
+    CREATE TABLE IF NOT EXISTS coupons (
+      code TEXT PRIMARY KEY, percent INTEGER NOT NULL, active INTEGER DEFAULT 1, "createdAt" BIGINT
+    );
   `);
   // Backfill columns for databases created before this migration existed.
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password TEXT`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "reviewHidden" INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS variants TEXT`);
+  await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS "compareAtPrice" DOUBLE PRECISION`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "couponCode" TEXT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount DOUBLE PRECISION DEFAULT 0`);
 }
 
 const DEFAULT_SETTINGS = {
@@ -87,12 +94,17 @@ const DEFAULT_SETTINGS = {
   discordUrl: "",
   twitterUrl: "",
   footerText: "© NorthSite — جميع الحقوق محفوظة",
-  paymentIcons: { stcPay: "", barq: "", ahliBank: "" },
+  paymentIcons: { stcPay: "/payment-icons/stcpay.svg", barq: "/payment-icons/barq.svg", ahliBank: "/payment-icons/alahli.svg" },
   banners: [],
   homeSections: [
     { id: "sec-featured", type: "featured", title: "المميزة" },
     { id: "sec-all", type: "all", title: "كل المنتجات" },
   ],
+  ibans: [
+    { id: "iban-1", bankName: "الراجحي", accountName: "North Store", iban: "SA00 0000 0000 0000 0000 0000" },
+  ],
+  announcementText: "",
+  announcementEnabled: false,
 };
 
 async function getSettings() {
@@ -145,6 +157,8 @@ function rowToProduct(r) {
     id: r.id, name: r.name, description: r.description, price: r.price, image: r.image,
     category: r.category, keys: JSON.parse(r.keys || "[]"), deliveryInfo: r.deliveryInfo || "",
     featured: !!r.featured, createdAt: Number(r.createdAt),
+    variants: r.variants ? JSON.parse(r.variants) : [],
+    compareAtPrice: r.compareAtPrice != null ? Number(r.compareAtPrice) : undefined,
   };
 }
 function rowToOrder(r) {
@@ -155,6 +169,8 @@ function rowToOrder(r) {
     rating: r.rating || undefined, reviewComment: r.reviewComment || undefined,
     reviewedAt: r.reviewedAt ? Number(r.reviewedAt) : undefined,
     reviewHidden: !!r.reviewHidden,
+    couponCode: r.couponCode || undefined,
+    discount: r.discount ? Number(r.discount) : 0,
   };
 }
 
@@ -245,7 +261,8 @@ app.get("/api/state", asyncRoute(async (req, res) => {
   const staffList = isAdmin
     ? await q(`SELECT username, "createdAt" FROM staff ORDER BY "createdAt" DESC`)
     : [];
-  res.json({ products, orders, users, staff: staffList, settings: await getSettings() });
+  const coupons = isAdmin ? await q(`SELECT * FROM coupons ORDER BY "createdAt" DESC`) : [];
+  res.json({ products, orders, users, staff: staffList, settings: await getSettings(), coupons });
 }));
 
 // -------- Admin login --------
@@ -295,9 +312,37 @@ app.post("/api/users/login", asyncRoute(async (req, res) => {
   res.json({ ok: true, username: uname });
 }));
 
+// -------- Coupons --------
+app.post("/api/coupons/validate", asyncRoute(async (req, res) => {
+  const code = String(req.body?.code || "").trim().toUpperCase();
+  if (!code) return res.json({ valid: false });
+  const row = await one("SELECT * FROM coupons WHERE code=$1", [code]);
+  if (!row || !row.active) return res.json({ valid: false });
+  res.json({ valid: true, code: row.code, percent: row.percent });
+}));
+app.post("/api/admin/coupons", requireAdmin, asyncRoute(async (req, res) => {
+  const code = String(req.body?.code || "").trim().toUpperCase();
+  const percent = Math.max(1, Math.min(100, Number(req.body?.percent) || 0));
+  if (!code || !percent) return res.status(400).json({ error: "invalid" });
+  await pool.query(
+    `INSERT INTO coupons (code, percent, active, "createdAt") VALUES ($1,$2,1,$3)
+     ON CONFLICT(code) DO UPDATE SET percent=excluded.percent, active=1`,
+    [code, percent, Date.now()]
+  );
+  res.json({ ok: true });
+}));
+app.patch("/api/admin/coupons/:code", requireAdmin, asyncRoute(async (req, res) => {
+  await pool.query("UPDATE coupons SET active=$1 WHERE code=$2", [req.body?.active ? 1 : 0, req.params.code.toUpperCase()]);
+  res.json({ ok: true });
+}));
+app.delete("/api/admin/coupons/:code", requireAdmin, asyncRoute(async (req, res) => {
+  await pool.query("DELETE FROM coupons WHERE code=$1", [req.params.code.toUpperCase()]);
+  res.json({ ok: true });
+}));
+
 // -------- Orders --------
 app.post("/api/orders", asyncRoute(async (req, res) => {
-  const { username, items: cartItems, receiptImage, note } = req.body || {};
+  const { username, items: cartItems, receiptImage, note, couponCode } = req.body || {};
   if (!username || !Array.isArray(cartItems) || !cartItems.length) return res.status(400).json({ error: "invalid" });
   const items = [];
   let total = 0;
@@ -306,18 +351,37 @@ app.post("/api/orders", asyncRoute(async (req, res) => {
     if (!r) continue;
     const p = rowToProduct(r);
     const qty = Math.max(1, Number(ci.quantity) || 1);
+    let price = p.price;
+    let variantLabel = "";
+    if (ci.variantId && Array.isArray(p.variants)) {
+      const v = p.variants.find((x) => x.id === ci.variantId);
+      if (v) { price = Number(v.price); variantLabel = v.label; }
+    }
     items.push({
-      productId: p.id, productName: p.name, productDescription: p.description,
-      price: p.price, quantity: qty, assignedKeys: [], deliveryInfo: p.deliveryInfo,
+      productId: p.id, productName: variantLabel ? `${p.name} — ${variantLabel}` : p.name,
+      productDescription: p.description,
+      price, quantity: qty, assignedKeys: [], deliveryInfo: p.deliveryInfo,
     });
-    total += p.price * qty;
+    total += price * qty;
   }
   if (!items.length) return res.status(400).json({ error: "no valid items" });
+
+  let discount = 0;
+  let appliedCoupon = "";
+  if (couponCode) {
+    const cr = await one("SELECT * FROM coupons WHERE code=$1", [String(couponCode).trim().toUpperCase()]);
+    if (cr && cr.active) {
+      discount = Math.round((total * cr.percent) / 100 * 100) / 100;
+      appliedCoupon = cr.code;
+      total = Math.max(0, total - discount);
+    }
+  }
+
   const id = "N" + crypto.randomBytes(3).toString("hex").toUpperCase();
   await pool.query(
-    `INSERT INTO orders (id,username,items,total,"receiptImage",note,status,"createdAt")
-     VALUES ($1,$2,$3,$4,$5,$6,'pending',$7)`,
-    [id, username, JSON.stringify(items), total, receiptImage || "", note || "", Date.now()]
+    `INSERT INTO orders (id,username,items,total,"receiptImage",note,status,"createdAt","couponCode",discount)
+     VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9)`,
+    [id, username, JSON.stringify(items), total, receiptImage || "", note || "", Date.now(), appliedCoupon || null, discount]
   );
   const row = await one("SELECT * FROM orders WHERE id=$1", [id]);
   res.json({ ok: true, id, order: rowToOrder(row) });
@@ -328,11 +392,12 @@ app.post("/api/admin/products", requireAdmin, asyncRoute(async (req, res) => {
   const p = req.body || {};
   const id = "p" + crypto.randomBytes(4).toString("hex");
   await pool.query(
-    `INSERT INTO products (id,name,description,price,image,category,keys,"deliveryInfo",featured,"createdAt")
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    `INSERT INTO products (id,name,description,price,image,category,keys,"deliveryInfo",featured,"createdAt",variants,"compareAtPrice")
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
     [id, p.name || "", p.description || "", Number(p.price) || 0, p.image || "",
      p.category || "", JSON.stringify(p.keys || []), p.deliveryInfo || "",
-     p.featured ? 1 : 0, Date.now()]
+     p.featured ? 1 : 0, Date.now(),
+     JSON.stringify(p.variants || []), p.compareAtPrice != null && p.compareAtPrice !== "" ? Number(p.compareAtPrice) : null]
   );
   res.json({ ok: true, id });
 }));
@@ -342,10 +407,12 @@ app.patch("/api/admin/products/:id", requireAdmin, asyncRoute(async (req, res) =
   if (!existing) return res.status(404).json({ error: "not found" });
   const merged = { ...rowToProduct(existing), ...p };
   await pool.query(
-    `UPDATE products SET name=$1,description=$2,price=$3,image=$4,category=$5,keys=$6,"deliveryInfo"=$7,featured=$8 WHERE id=$9`,
+    `UPDATE products SET name=$1,description=$2,price=$3,image=$4,category=$5,keys=$6,"deliveryInfo"=$7,featured=$8,variants=$9,"compareAtPrice"=$10 WHERE id=$11`,
     [merged.name, merged.description, Number(merged.price) || 0, merged.image,
      merged.category, JSON.stringify(merged.keys || []), merged.deliveryInfo,
-     merged.featured ? 1 : 0, req.params.id]
+     merged.featured ? 1 : 0, JSON.stringify(merged.variants || []),
+     merged.compareAtPrice != null && merged.compareAtPrice !== "" ? Number(merged.compareAtPrice) : null,
+     req.params.id]
   );
   res.json({ ok: true });
 }));

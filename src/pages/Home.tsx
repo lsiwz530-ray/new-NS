@@ -81,19 +81,26 @@ export default function Home() {
 function HomeSectionBlock({
   section, featured, rest, all, banners,
 }: { section: HomeSection; featured: Product[]; rest: Product[]; all: Product[]; banners: string[] }) {
+  const pickManual = (base: Product[]) => {
+    if (!section.productIds || section.productIds.length === 0) return base;
+    const byId = new Map(all.map((p) => [p.id, p]));
+    return section.productIds.map((id) => byId.get(id)).filter((p): p is Product => !!p);
+  };
+
   if (section.type === "featured") {
-    if (featured.length === 0) return null;
+    const items = pickManual(featured);
+    if (items.length === 0) return null;
     return (
       <section id="featured" className="py-16">
         <div className="mx-auto max-w-7xl px-4">
           <SectionTitle title={section.title} subtitle="اختياراتنا الأسطورية" />
-          <ProductCarousel products={featured} />
+          <ProductCarousel products={items} />
         </div>
       </section>
     );
   }
   if (section.type === "category") {
-    const items = all.filter((p) => p.category === section.category);
+    const items = pickManual(all.filter((p) => p.category === section.category));
     if (items.length === 0) return null;
     return (
       <section className="py-16">
@@ -111,12 +118,13 @@ function HomeSectionBlock({
     return <BannersSection title={section.title} banners={banners} />;
   }
   // type === "all"
-  if (rest.length === 0) return null;
+  const items = pickManual(rest.length ? rest : all);
+  if (items.length === 0) return null;
   return (
     <section className="py-16">
       <div className="mx-auto max-w-7xl px-4">
-        <SectionTitle title={section.title} subtitle={`${rest.length} منتج`} />
-        <ProductCarousel products={rest} />
+        <SectionTitle title={section.title} subtitle={`${items.length} منتج`} />
+        <ProductCarousel products={items} />
       </div>
     </section>
   );

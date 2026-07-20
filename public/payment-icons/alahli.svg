@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 60" width="160" height="60">
+<rect width="160" height="60" rx="10" fill="#054a29"/>
+<circle cx="30" cy="30" r="16" fill="#ffffff"/>
+<path d="M22 34 L30 18 L38 34 Z" fill="#054a29"/>
+<text x="100" y="27" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#ffffff" text-anchor="middle">البنك الأهلي</text>
+<text x="100" y="44" font-family="Arial, sans-serif" font-size="10" fill="#8fd8ae" text-anchor="middle">SAUDI NATIONAL BANK</text>
+</svg>

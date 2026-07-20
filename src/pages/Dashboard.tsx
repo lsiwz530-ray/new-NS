@@ -1,9 +1,9 @@
 import { useNavigate, Link } from "@tanstack/react-router";
 import {
   useStore, adminActions, productActions, settingsActions, orderActions,
-  staffActions, chatActions, statsActions, reviewAdminActions,
+  staffActions, chatActions, statsActions, reviewAdminActions, couponActions,
   formatMoney, type Product, type Order, type SiteSettings, type HomeSection,
-  type ChatThread, type ChatMessage, type SiteStats,
+  type ChatThread, type ChatMessage, type SiteStats, type Coupon,
 } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Plus, Pencil, Trash2, Key, Package, ShoppingBag, Settings as SettingsIcon,
   LogOut, CheckCircle2, XCircle, Eye, Home, Users, LayoutList, ArrowUp, ArrowDown,
-  UserCog, MessageCircle, BarChart3, Star, Send, EyeOff, MessageSquareOff, Image as ImageIcon,
+  UserCog, MessageCircle, BarChart3, Star, Send, EyeOff, MessageSquareOff, Image as ImageIcon, Tag,
 } from "lucide-react";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
@@ -64,6 +64,7 @@ export default function Dashboard() {
               <TabsTrigger value="orders"><ShoppingBag className="w-4 h-4 ml-1" /> الطلبات</TabsTrigger>
               <TabsTrigger value="users"><Users className="w-4 h-4 ml-1" /> المستخدمون</TabsTrigger>
               <TabsTrigger value="sections"><LayoutList className="w-4 h-4 ml-1" /> الأقسام</TabsTrigger>
+              <TabsTrigger value="coupons"><Tag className="w-4 h-4 ml-1" /> الكوبونات</TabsTrigger>
               <TabsTrigger value="reviews"><Star className="w-4 h-4 ml-1" /> التقييمات</TabsTrigger>
               <TabsTrigger value="team"><UserCog className="w-4 h-4 ml-1" /> الفريق</TabsTrigger>
               <TabsTrigger value="chats"><MessageCircle className="w-4 h-4 ml-1" /> الدردشات</TabsTrigger>
@@ -74,12 +75,77 @@ export default function Dashboard() {
             <TabsContent value="orders" className="mt-4"><OrdersAdmin /></TabsContent>
             <TabsContent value="users" className="mt-4"><UsersAdmin /></TabsContent>
             <TabsContent value="sections" className="mt-4"><SectionsAdmin /></TabsContent>
+            <TabsContent value="coupons" className="mt-4"><CouponsAdmin /></TabsContent>
             <TabsContent value="reviews" className="mt-4"><ReviewsAdmin /></TabsContent>
             <TabsContent value="team" className="mt-4"><TeamAdmin /></TabsContent>
             <TabsContent value="chats" className="mt-4"><ChatsAdmin /></TabsContent>
             <TabsContent value="stats" className="mt-4"><StatsAdmin /></TabsContent>
             <TabsContent value="settings" className="mt-4"><SettingsAdmin /></TabsContent>
           </Tabs>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Coupons ----------
+function CouponsAdmin() {
+  const coupons = useStore((s) => s.coupons);
+  const [code, setCode] = useState("");
+  const [percent, setPercent] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function add() {
+    if (!code.trim() || !percent) { toast.error("أدخل الكود ونسبة الخصم"); return; }
+    const p = Math.max(1, Math.min(100, parseInt(percent) || 0));
+    setSaving(true);
+    try {
+      await couponActions.add(code.trim().toUpperCase(), p);
+      toast.success("تم إضافة الكوبون");
+      setCode(""); setPercent("");
+    } catch { toast.error("تعذر إضافة الكوبون"); }
+    setSaving(false);
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+      <div className="glass neon-border rounded-2xl p-5 h-fit">
+        <h3 className="font-display text-lg font-bold neon-text mb-4">إضافة كوبون جديد</h3>
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs text-muted-foreground">كود الكوبون</Label>
+            <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="مثال: NORTH20" className="bg-secondary/50 mt-1 font-mono" />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">نسبة الخصم %</Label>
+            <Input type="number" min={1} max={100} value={percent} onChange={(e) => setPercent(e.target.value)} placeholder="مثال: 20" className="bg-secondary/50 mt-1" />
+          </div>
+          <Button onClick={add} disabled={saving} className="w-full gradient-purple neon-glow">
+            <Plus className="w-4 h-4 ml-1" /> إضافة الكوبون
+          </Button>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="font-display text-2xl font-bold neon-text mb-4">الكوبونات ({coupons.length})</h2>
+        {coupons.length === 0 && <div className="text-center py-16 text-muted-foreground glass neon-border rounded-xl">لا توجد كوبونات بعد</div>}
+        <div className="grid gap-3">
+          {coupons.map((c) => (
+            <div key={c.code} className="glass neon-border rounded-xl p-4 flex items-center gap-4">
+              <div className="w-11 h-11 rounded-lg gradient-purple neon-glow flex items-center justify-center text-white shrink-0"><Tag className="w-5 h-5" /></div>
+              <div className="flex-1 min-w-0">
+                <div className="font-mono font-bold">{c.code}</div>
+                <div className="text-xs text-muted-foreground">خصم {c.percent}%</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={!!c.active} onCheckedChange={(v) => couponActions.setActive(c.code, v)} />
+                <Button size="sm" variant="outline" className="border-destructive/50 text-destructive"
+                  onClick={async () => { if (confirm("حذف الكوبون؟")) { await couponActions.remove(c.code); toast.success("تم الحذف"); } }}>
+                  <Trash2 className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -119,7 +185,18 @@ function ProductsAdmin() {
                 {p.featured && <Badge className="gradient-purple">مميز</Badge>}
               </div>
               <div className="text-xs text-muted-foreground">{p.category} • {p.keys.length} مفتاح متاح</div>
-              <div className="text-sm font-bold neon-text mt-1">{formatMoney(p.price)}</div>
+              <div className="text-sm font-bold neon-text mt-1 flex items-center gap-2">
+                {p.variants && p.variants.length > 0 ? (
+                  <span>من {formatMoney(Math.min(...p.variants.map((v) => v.price)))} ({p.variants.length} خيارات اشتراك)</span>
+                ) : (
+                  <>
+                    {formatMoney(p.price)}
+                    {p.compareAtPrice && p.compareAtPrice > p.price && (
+                      <span className="text-xs text-muted-foreground line-through font-normal">{formatMoney(p.compareAtPrice)}</span>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" className="border-primary/50" onClick={() => setEditing(p)}><Pencil className="w-3 h-3" /></Button>
@@ -147,6 +224,8 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
   const [deliveryInfo, setDeliveryInfo] = useState("");
   const [featured, setFeatured] = useState(false);
   const [keysText, setKeysText] = useState("");
+  const [compareAtPrice, setCompareAtPrice] = useState("");
+  const [variants, setVariants] = useState<{ id: string; label: string; price: string }[]>([]);
 
   useEffect(() => {
     if (product) {
@@ -154,11 +233,24 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
       setCategory(product.category); setImage(product.image); setDeliveryInfo(product.deliveryInfo);
       setFeatured(!!product.featured); setKeysText(product.keys.join("\n"));
       setAddingCategory(!!product.category && !categories.includes(product.category));
+      setCompareAtPrice(product.compareAtPrice != null ? String(product.compareAtPrice) : "");
+      setVariants((product.variants || []).map((v) => ({ id: v.id, label: v.label, price: String(v.price) })));
     } else if (open) {
       setName(""); setDescription(""); setPrice(""); setCategory(""); setImage("");
       setDeliveryInfo(""); setFeatured(false); setKeysText(""); setAddingCategory(categories.length === 0);
+      setCompareAtPrice(""); setVariants([]);
     }
   }, [product, open]);
+
+  function addVariant() {
+    setVariants((v) => [...v, { id: "v" + Date.now() + Math.random().toString(36).slice(2, 6), label: "", price: "" }]);
+  }
+  function updateVariant(i: number, patch: Partial<{ label: string; price: string }>) {
+    setVariants((v) => v.map((x, idx) => idx === i ? { ...x, ...patch } : x));
+  }
+  function removeVariant(i: number) {
+    setVariants((v) => v.filter((_, idx) => idx !== i));
+  }
 
   function onImgFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]; if (!f) return;
@@ -168,9 +260,14 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
   async function save() {
     if (!name.trim() || !price) { toast.error("الاسم والسعر مطلوبان"); return; }
     const keys = keysText.split("\n").map((k) => k.trim()).filter(Boolean);
+    const cleanVariants = variants
+      .filter((v) => v.label.trim() && v.price)
+      .map((v) => ({ id: v.id, label: v.label.trim(), price: parseFloat(v.price) || 0 }));
     const data = {
       name: name.trim(), description: description.trim(), price: parseFloat(price) || 0,
       category: category.trim() || "عام", image, deliveryInfo: deliveryInfo.trim(), featured, keys,
+      compareAtPrice: compareAtPrice ? parseFloat(compareAtPrice) : undefined,
+      variants: cleanVariants,
     };
     if (product) { await productActions.update(product.id, data); toast.success("تم التعديل"); }
     else { await productActions.add(data); toast.success("تم إضافة المنتج"); }
@@ -181,60 +278,102 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl bg-background border-primary/30 max-h-[90vh] overflow-y-auto" dir="rtl">
         <DialogHeader><DialogTitle className="font-display text-2xl neon-text">{product ? "تعديل منتج" : "إضافة منتج"}</DialogTitle></DialogHeader>
-        <div className="space-y-4">
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div><Label>اسم المنتج *</Label><Input value={name} onChange={(e) => setName(e.target.value)} className="bg-secondary/50 mt-1" /></div>
+        <Tabs defaultValue="basic">
+          <TabsList className="bg-secondary/50">
+            <TabsTrigger value="basic">أساسي</TabsTrigger>
+            <TabsTrigger value="pricing">الاشتراكات والخصم</TabsTrigger>
+            <TabsTrigger value="delivery">التسليم والمفاتيح</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="basic" className="space-y-4 mt-4">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div><Label>اسم المنتج *</Label><Input value={name} onChange={(e) => setName(e.target.value)} className="bg-secondary/50 mt-1" /></div>
+              <div>
+                <Label>التصنيف</Label>
+                {addingCategory ? (
+                  <div className="flex gap-2 mt-1">
+                    <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="اكتب اسم قسم جديد" className="bg-secondary/50" autoFocus />
+                    {categories.length > 0 && (
+                      <Button type="button" variant="outline" className="border-primary/50 shrink-0" onClick={() => { setAddingCategory(false); setCategory(categories[0] || ""); }}>
+                        اختيار من القائمة
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <Select value={category} onValueChange={(v) => { if (v === "__new__") { setAddingCategory(true); setCategory(""); } else { setCategory(v); } }}>
+                    <SelectTrigger className="bg-secondary/50 mt-1 w-full"><SelectValue placeholder="اختر القسم" /></SelectTrigger>
+                    <SelectContent>
+                      {categories.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                      <SelectItem value="__new__">+ إضافة قسم جديد</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
+            <div><Label>الوصف</Label><Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="bg-secondary/50 mt-1" /></div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div><Label>السعر *</Label><Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="bg-secondary/50 mt-1" /></div>
+              <div className="flex items-end"><div className="flex items-center gap-2 h-10"><Switch checked={featured} onCheckedChange={setFeatured} id="featured" /><Label htmlFor="featured">منتج مميز</Label></div></div>
+            </div>
             <div>
-              <Label>التصنيف</Label>
-              {addingCategory ? (
-                <div className="flex gap-2 mt-1">
-                  <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="اكتب اسم قسم جديد" className="bg-secondary/50" autoFocus />
-                  {categories.length > 0 && (
-                    <Button type="button" variant="outline" className="border-primary/50 shrink-0" onClick={() => { setAddingCategory(false); setCategory(categories[0] || ""); }}>
-                      اختيار من القائمة
+              <Label>الصورة</Label>
+              <div className="mt-1 flex items-center gap-3">
+                {image && (
+                  <div className="relative">
+                    <img src={image} className="w-24 h-24 object-cover rounded-lg neon-border" alt="preview" />
+                    <button onClick={() => setImage("")} className="absolute -top-2 -left-2 bg-destructive text-white w-6 h-6 rounded-full text-xs">×</button>
+                  </div>
+                )}
+                <label className="cursor-pointer px-4 py-2 rounded-lg bg-secondary hover:bg-primary/30 text-sm">
+                  رفع صورة<input type="file" accept="image/*" className="hidden" onChange={onImgFile} />
+                </label>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="pricing" className="space-y-5 mt-4">
+            <div>
+              <Label>السعر قبل الخصم (تسويقي — اختياري)</Label>
+              <Input type="number" value={compareAtPrice} onChange={(e) => setCompareAtPrice(e.target.value)}
+                placeholder="مثال: 150 (سيظهر مشطوبًا فوق السعر الحالي)" className="bg-secondary/50 mt-1" />
+              <div className="text-xs text-muted-foreground mt-1">يُستخدم فقط إذا لم يكن للمنتج خيارات اشتراك.</div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>خيارات الاشتراك (يومي / أسبوعي / شهري...)</Label>
+                <Button type="button" size="sm" variant="outline" className="border-primary/50" onClick={addVariant}>
+                  <Plus className="w-3 h-3 ml-1" /> إضافة خيار
+                </Button>
+              </div>
+              <div className="text-xs text-muted-foreground mb-3">إذا أضفت خيارات هنا، سيختار العميل المدة من صفحة المنتج ويتغير السعر تلقائيًا حسب اختياره، ويُتجاهل السعر الأساسي في هذه الحالة.</div>
+              <div className="space-y-2">
+                {variants.map((v, i) => (
+                  <div key={v.id} className="flex items-center gap-2">
+                    <Input value={v.label} onChange={(e) => updateVariant(i, { label: e.target.value })} placeholder="مثال: شهري" className="bg-secondary/50 flex-1" />
+                    <Input type="number" value={v.price} onChange={(e) => updateVariant(i, { price: e.target.value })} placeholder="السعر" className="bg-secondary/50 w-28" />
+                    <Button type="button" size="sm" variant="outline" className="border-destructive/50 text-destructive shrink-0" onClick={() => removeVariant(i)}>
+                      <Trash2 className="w-3 h-3" />
                     </Button>
-                  )}
-                </div>
-              ) : (
-                <Select value={category} onValueChange={(v) => { if (v === "__new__") { setAddingCategory(true); setCategory(""); } else { setCategory(v); } }}>
-                  <SelectTrigger className="bg-secondary/50 mt-1 w-full"><SelectValue placeholder="اختر القسم" /></SelectTrigger>
-                  <SelectContent>
-                    {categories.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
-                    <SelectItem value="__new__">+ إضافة قسم جديد</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
+                  </div>
+                ))}
+                {variants.length === 0 && <div className="text-xs text-muted-foreground">لا توجد خيارات اشتراك — المنتج بسعر ثابت.</div>}
+              </div>
             </div>
-          </div>
-          <div><Label>الوصف</Label><Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="bg-secondary/50 mt-1" /></div>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div><Label>السعر *</Label><Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className="bg-secondary/50 mt-1" /></div>
-            <div className="flex items-end"><div className="flex items-center gap-2 h-10"><Switch checked={featured} onCheckedChange={setFeatured} id="featured" /><Label htmlFor="featured">منتج مميز</Label></div></div>
-          </div>
-          <div>
-            <Label>الصورة</Label>
-            <div className="mt-1 flex items-center gap-3">
-              {image && (
-                <div className="relative">
-                  <img src={image} className="w-24 h-24 object-cover rounded-lg neon-border" alt="preview" />
-                  <button onClick={() => setImage("")} className="absolute -top-2 -left-2 bg-destructive text-white w-6 h-6 rounded-full text-xs">×</button>
-                </div>
-              )}
-              <label className="cursor-pointer px-4 py-2 rounded-lg bg-secondary hover:bg-primary/30 text-sm">
-                رفع صورة<input type="file" accept="image/*" className="hidden" onChange={onImgFile} />
-              </label>
+          </TabsContent>
+
+          <TabsContent value="delivery" className="space-y-4 mt-4">
+            <div>
+              <Label>معلومات التسليم (تظهر للعميل بعد الشراء)</Label>
+              <Textarea value={deliveryInfo} onChange={(e) => setDeliveryInfo(e.target.value)} placeholder="رابط اللودر، تعليمات..." rows={3} className="bg-secondary/50 mt-1" />
             </div>
-          </div>
-          <div>
-            <Label>معلومات التسليم (تظهر للعميل بعد الشراء)</Label>
-            <Textarea value={deliveryInfo} onChange={(e) => setDeliveryInfo(e.target.value)} placeholder="رابط اللودر، تعليمات..." rows={3} className="bg-secondary/50 mt-1" />
-          </div>
-          <div>
-            <Label className="flex items-center gap-1"><Key className="w-4 h-4" /> المفاتيح (سطر لكل مفتاح)</Label>
-            <Textarea value={keysText} onChange={(e) => setKeysText(e.target.value)} placeholder={"KEY-0001\nKEY-0002"} rows={6} className="bg-secondary/50 mt-1 font-mono text-sm" />
-            <div className="text-xs text-muted-foreground mt-1">تُعطى بالترتيب. كل مفتاح يُسلَّم في رسالة منفصلة للعميل.</div>
-          </div>
-        </div>
+            <div>
+              <Label className="flex items-center gap-1"><Key className="w-4 h-4" /> المفاتيح (سطر لكل مفتاح)</Label>
+              <Textarea value={keysText} onChange={(e) => setKeysText(e.target.value)} placeholder={"KEY-0001\nKEY-0002"} rows={6} className="bg-secondary/50 mt-1 font-mono text-sm" />
+              <div className="text-xs text-muted-foreground mt-1">تُعطى بالترتيب. كل مفتاح يُسلَّم في رسالة منفصلة للعميل.</div>
+            </div>
+          </TabsContent>
+        </Tabs>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>إلغاء</Button>
           <Button onClick={save} className="gradient-purple neon-glow">حفظ</Button>
@@ -336,13 +475,23 @@ function SettingsAdmin() {
         <Field label="عنوان الهيرو"><Input value={form.heroTitle} onChange={(e) => up("heroTitle", e.target.value)} /></Field>
         <Field label="العملة"><Input value={form.currency} onChange={(e) => up("currency", e.target.value)} /></Field>
         <Field label="الوصف تحت العنوان" full><Textarea value={form.heroSubtitle} onChange={(e) => up("heroSubtitle", e.target.value)} rows={2} /></Field>
-        <Field label="اسم البنك"><Input value={form.bankName} onChange={(e) => up("bankName", e.target.value)} /></Field>
-        <Field label="اسم المستفيد"><Input value={form.accountName} onChange={(e) => up("accountName", e.target.value)} /></Field>
-        <Field label="IBAN" full><Input value={form.iban} onChange={(e) => up("iban", e.target.value)} className="font-mono" /></Field>
         <Field label="رقم الجوال"><Input value={form.phone} onChange={(e) => up("phone", e.target.value)} /></Field>
         <Field label="Discord URL"><Input value={form.discordUrl} onChange={(e) => up("discordUrl", e.target.value)} /></Field>
         <Field label="Twitter URL"><Input value={form.twitterUrl} onChange={(e) => up("twitterUrl", e.target.value)} /></Field>
         <Field label="نص الفوتر" full><Input value={form.footerText} onChange={(e) => up("footerText", e.target.value)} /></Field>
+      </div>
+
+      <h3 className="font-display text-lg font-bold neon-text mt-8 mb-3">الحسابات البنكية (IBAN)</h3>
+      <div className="text-xs text-muted-foreground mb-3">أضف أكثر من حساب بنكي — تظهر كلها للعميل عند الدفع.</div>
+      <IbansField value={form.ibans && form.ibans.length ? form.ibans : [{ id: "iban-1", bankName: form.bankName, accountName: form.accountName, iban: form.iban }]} onChange={(v) => up("ibans", v)} />
+
+      <h3 className="font-display text-lg font-bold neon-text mt-8 mb-3">شريط الإعلان المتحرك</h3>
+      <div className="glass rounded-xl p-4 space-y-3 border border-primary/20">
+        <div className="flex items-center gap-2">
+          <Switch checked={form.announcementEnabled} onCheckedChange={(v) => up("announcementEnabled", v)} id="announcementEnabled" />
+          <Label htmlFor="announcementEnabled">تفعيل الشريط أعلى الموقع</Label>
+        </div>
+        <Input value={form.announcementText} onChange={(e) => up("announcementText", e.target.value)} placeholder="مثال: 🎉 خصم 20% على جميع السكربتات هذا الأسبوع!" className="bg-secondary/50" />
       </div>
 
       <h3 className="font-display text-lg font-bold neon-text mt-8 mb-3">أيقونات وسائل الدفع</h3>
@@ -357,6 +506,35 @@ function SettingsAdmin() {
       <BannersUploadField value={form.banners} onChange={(v) => up("banners", v)} />
 
       <div className="mt-6 flex justify-end"><Button onClick={save} className="gradient-purple neon-glow">حفظ</Button></div>
+    </div>
+  );
+}
+
+function IbansField({ value, onChange }: { value: SiteSettings["ibans"]; onChange: (v: SiteSettings["ibans"]) => void }) {
+  function update(i: number, patch: Partial<SiteSettings["ibans"][number]>) {
+    onChange(value.map((b, idx) => idx === i ? { ...b, ...patch } : b));
+  }
+  function add() {
+    onChange([...value, { id: "iban-" + Date.now(), bankName: "", accountName: "", iban: "" }]);
+  }
+  function remove(i: number) {
+    onChange(value.filter((_, idx) => idx !== i));
+  }
+  return (
+    <div className="space-y-3">
+      {value.map((b, i) => (
+        <div key={b.id} className="grid sm:grid-cols-[1fr_1fr_1.4fr_auto] gap-2 items-end glass rounded-xl p-3 border border-primary/10">
+          <div><Label className="text-xs text-muted-foreground">اسم البنك</Label><Input value={b.bankName} onChange={(e) => update(i, { bankName: e.target.value })} className="bg-secondary/50 mt-1" /></div>
+          <div><Label className="text-xs text-muted-foreground">اسم المستفيد</Label><Input value={b.accountName} onChange={(e) => update(i, { accountName: e.target.value })} className="bg-secondary/50 mt-1" /></div>
+          <div><Label className="text-xs text-muted-foreground">IBAN</Label><Input value={b.iban} onChange={(e) => update(i, { iban: e.target.value })} className="bg-secondary/50 mt-1 font-mono" /></div>
+          <Button type="button" size="sm" variant="outline" className="border-destructive/50 text-destructive" onClick={() => remove(i)} disabled={value.length <= 1}>
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" size="sm" variant="outline" className="border-primary/50" onClick={add}>
+        <Plus className="w-4 h-4 ml-1" /> إضافة حساب بنكي آخر
+      </Button>
     </div>
   );
 }
@@ -503,6 +681,13 @@ function SectionsAdmin() {
                     : "قسم بنرات المتجر"}
                 </div>
               )}
+              {(sec.type === "featured" || sec.type === "all" || sec.type === "category") && (
+                <ProductPicker
+                  products={products}
+                  selected={sec.productIds || []}
+                  onChange={(ids) => setSections(sections.map((s, idx) => idx === i ? { ...s, productIds: ids } : s))}
+                />
+              )}
             </div>
             {sec.type !== "featured" && sec.type !== "all" && (
               <Button size="sm" variant="outline" className="border-destructive/50 text-destructive" onClick={() => remove(i)}>
@@ -513,6 +698,40 @@ function SectionsAdmin() {
         ))}
       </div>
       <div className="mt-6 flex justify-end"><Button onClick={save} className="gradient-purple neon-glow">حفظ الترتيب</Button></div>
+    </div>
+  );
+}
+
+function ProductPicker({ products, selected, onChange }: { products: Product[]; selected: string[]; onChange: (ids: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-xs px-3 py-1.5 rounded-lg bg-secondary/60 hover:bg-primary/20 border border-primary/20"
+      >
+        {selected.length > 0 ? `منتجات محددة يدويًا (${selected.length})` : "اختيار منتجات محددة (اختياري)"}
+      </button>
+      {selected.length > 0 && (
+        <button type="button" onClick={() => onChange([])} className="text-xs text-destructive mr-2 hover:underline">مسح الاختيار</button>
+      )}
+      {open && (
+        <div className="mt-2 max-h-56 overflow-y-auto scrollbar-thin border border-primary/20 rounded-lg p-2 space-y-1 bg-secondary/20">
+          {products.length === 0 && <div className="text-xs text-muted-foreground p-2">لا توجد منتجات بعد</div>}
+          {products.map((p) => (
+            <label key={p.id} className="flex items-center gap-2 text-xs px-2 py-1.5 rounded hover:bg-primary/10 cursor-pointer">
+              <input type="checkbox" checked={selected.includes(p.id)} onChange={() => toggle(p.id)} className="accent-primary" />
+              <span className="flex-1 truncate">{p.name}</span>
+              <span className="text-muted-foreground">{p.category}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      <div className="text-[11px] text-muted-foreground mt-1">إذا اخترت منتجات هنا، سيعرض القسم هذه المنتجات فقط بدل العرض التلقائي.</div>
     </div>
   );
 }

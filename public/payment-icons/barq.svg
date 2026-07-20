@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 60" width="160" height="60">
+<rect width="160" height="60" rx="10" fill="#0a1f44"/>
+<path d="M70 12 L50 34 L64 34 L58 50 L90 26 L74 26 Z" fill="#ffd400"/>
+<text x="95" y="38" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="#ffffff" text-anchor="middle">برق</text>
+</svg>

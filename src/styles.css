@@ -37,32 +37,32 @@
 
 :root {
   --radius: 0.75rem;
-  --background: oklch(0.12 0.017 300);
-  --foreground: oklch(0.98 0.006 300);
-  --card: oklch(0.16 0.022 300 / 0.7);
-  --card-foreground: oklch(0.98 0.006 300);
-  --popover: oklch(0.14 0.022 300);
-  --popover-foreground: oklch(0.98 0.006 300);
-  --primary: oklch(0.65 0.154 300);
+  --background: oklch(0.15 0.022 300);
+  --foreground: oklch(0.99 0.006 300);
+  --card: oklch(0.21 0.028 300 / 0.7);
+  --card-foreground: oklch(0.99 0.006 300);
+  --popover: oklch(0.18 0.026 300);
+  --popover-foreground: oklch(0.99 0.006 300);
+  --primary: oklch(0.72 0.19 300);
   --primary-foreground: oklch(0.1 0.011 300);
-  --secondary: oklch(0.22 0.028 300);
-  --secondary-foreground: oklch(0.98 0.006 300);
-  --muted: oklch(0.2 0.017 300);
-  --muted-foreground: oklch(0.7 0.017 300);
-  --accent: oklch(0.28 0.055 300);
-  --accent-foreground: oklch(0.98 0.006 300);
-  --destructive: oklch(0.62 0.24 25);
-  --destructive-foreground: oklch(0.98 0.006 300);
-  --border: oklch(0.3 0.028 300 / 0.5);
-  --input: oklch(0.22 0.028 300);
-  --ring: oklch(0.65 0.154 300);
-  --neon: oklch(0.72 0.16 300);
-  --neon-2: oklch(0.8 0.25 330);
+  --secondary: oklch(0.27 0.034 300);
+  --secondary-foreground: oklch(0.99 0.006 300);
+  --muted: oklch(0.25 0.02 300);
+  --muted-foreground: oklch(0.76 0.02 300);
+  --accent: oklch(0.34 0.065 300);
+  --accent-foreground: oklch(0.99 0.006 300);
+  --destructive: oklch(0.65 0.24 25);
+  --destructive-foreground: oklch(0.99 0.006 300);
+  --border: oklch(0.4 0.04 300 / 0.55);
+  --input: oklch(0.27 0.034 300);
+  --ring: oklch(0.72 0.19 300);
+  --neon: oklch(0.8 0.19 300);
+  --neon-2: oklch(0.85 0.27 330);
 }
 
 .dark {
-  --background: oklch(0.1 0.017 300);
-  --foreground: oklch(0.98 0.006 300);
+  --background: oklch(0.13 0.022 300);
+  --foreground: oklch(0.99 0.006 300);
 }
 
 @layer base {
@@ -75,39 +75,40 @@
   .neon-text {
     color: #fff;
     text-shadow:
-      0 0 3px oklch(0.85 0.08 300),
-      0 0 8px oklch(0.7 0.11 300),
-      0 0 16px oklch(0.6 0.11 300);
+      0 0 4px oklch(0.9 0.1 300),
+      0 0 10px oklch(0.78 0.16 300),
+      0 0 22px oklch(0.68 0.18 300);
   }
   .neon-text-strong {
     color: #fff;
     text-shadow:
-      0 0 4px #fff,
-      0 0 10px oklch(0.75 0.11 300),
-      0 0 20px oklch(0.6 0.11 300);
+      0 0 6px #fff,
+      0 0 14px oklch(0.82 0.16 300),
+      0 0 28px oklch(0.7 0.18 300),
+      0 0 46px oklch(0.6 0.2 310 / 0.6);
   }
   .neon-border {
-    border: 1px solid oklch(0.65 0.154 300 / 0.4);
+    border: 1px solid oklch(0.72 0.19 300 / 0.5);
     box-shadow:
-      0 0 0 1px oklch(0.65 0.154 300 / 0.1),
-      0 0 12px oklch(0.6 0.11 300 / 0.15),
-      inset 0 0 12px oklch(0.6 0.11 300 / 0.05);
+      0 0 0 1px oklch(0.72 0.19 300 / 0.15),
+      0 0 18px oklch(0.65 0.16 300 / 0.22),
+      inset 0 0 16px oklch(0.65 0.16 300 / 0.07);
   }
   .neon-glow {
     box-shadow:
-      0 0 12px oklch(0.65 0.11 300 / 0.3),
-      0 0 28px oklch(0.6 0.11 310 / 0.15);
+      0 0 16px oklch(0.72 0.16 300 / 0.4),
+      0 0 38px oklch(0.65 0.16 310 / 0.22);
   }
   .glass {
-    background: linear-gradient(140deg, oklch(0.18 0.028 300 / 0.6), oklch(0.14 0.022 310 / 0.4));
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    background: linear-gradient(140deg, oklch(0.25 0.038 300 / 0.65), oklch(0.19 0.03 310 / 0.45));
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
   }
   .gradient-purple {
-    background: linear-gradient(135deg, oklch(0.55 0.3 295), oklch(0.6 0.154 320));
+    background: linear-gradient(135deg, oklch(0.62 0.32 295), oklch(0.66 0.19 320));
   }
   .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { background: oklch(0.5 0.11 300 / 0.5); border-radius: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: oklch(0.55 0.14 300 / 0.6); border-radius: 4px; }
 }
 
 @keyframes neon-pulse {
@@ -168,3 +169,12 @@ a, button, input, textarea, [role="tab"], .glass, .neon-border {
   100% { opacity: 0; visibility: hidden; }
 }
 .splash-screen { animation: splash-fade-out 1.9s ease both; }
+
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(50%); }
+}
+.marquee-track {
+  animation: marquee-scroll 18s linear infinite;
+  will-change: transform;
+}

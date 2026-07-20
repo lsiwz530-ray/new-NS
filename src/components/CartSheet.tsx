@@ -13,10 +13,12 @@ export function CartSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
 
   const items = cart.map((ci) => {
     const p = products.find((pp) => pp.id === ci.productId);
-    return p ? { ...ci, product: p } : null;
+    if (!p) return null;
+    const variant = ci.variantId ? p.variants?.find((v) => v.id === ci.variantId) : undefined;
+    return { ...ci, product: p, unitPrice: variant ? variant.price : p.price, variantLabel: variant?.label };
   }).filter((x): x is NonNullable<typeof x> => !!x);
 
-  const total = items.reduce((a, it) => a + it.product.price * it.quantity, 0);
+  const total = items.reduce((a, it) => a + it.unitPrice * it.quantity, 0);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -46,20 +48,21 @@ export function CartSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
           <>
             <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-3">
               {items.map((it) => (
-                <div key={it.productId} className="glass neon-border rounded-xl p-3 flex gap-3">
+                <div key={it.productId + (it.variantId || "")} className="glass neon-border rounded-xl p-3 flex gap-3">
                   <ProductImage product={it.product} className="w-16 h-16 rounded-lg flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold truncate">{it.product.name}</div>
-                    <div className="text-primary font-bold text-sm neon-text">{formatMoney(it.product.price, settings.currency)}</div>
+                    {it.variantLabel && <div className="text-[11px] text-muted-foreground">{it.variantLabel}</div>}
+                    <div className="text-primary font-bold text-sm neon-text">{formatMoney(it.unitPrice, settings.currency)}</div>
                     <div className="flex items-center gap-2 mt-2">
-                      <button onClick={() => cartActions.setQty(it.productId, it.quantity - 1)} className="w-7 h-7 rounded-md bg-secondary hover:bg-primary/30 flex items-center justify-center">
+                      <button onClick={() => cartActions.setQty(it.productId, it.quantity - 1, it.variantId)} className="w-7 h-7 rounded-md bg-secondary hover:bg-primary/30 flex items-center justify-center">
                         <Minus className="w-3 h-3" />
                       </button>
                       <span className="w-8 text-center font-semibold">{it.quantity}</span>
-                      <button onClick={() => cartActions.setQty(it.productId, it.quantity + 1)} className="w-7 h-7 rounded-md bg-secondary hover:bg-primary/30 flex items-center justify-center">
+                      <button onClick={() => cartActions.setQty(it.productId, it.quantity + 1, it.variantId)} className="w-7 h-7 rounded-md bg-secondary hover:bg-primary/30 flex items-center justify-center">
                         <Plus className="w-3 h-3" />
                       </button>
-                      <button onClick={() => cartActions.remove(it.productId)} className="mr-auto p-1.5 rounded-md text-destructive hover:bg-destructive/20">
+                      <button onClick={() => cartActions.remove(it.productId, it.variantId)} className="mr-auto p-1.5 rounded-md text-destructive hover:bg-destructive/20">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>

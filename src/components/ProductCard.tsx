@@ -36,7 +36,19 @@ export function ProductCard({ product }: { product: Product }) {
           </Link>
           <p className="text-sm text-muted-foreground line-clamp-2">{product.description}</p>
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-primary/20">
-            <div className="font-display text-xl font-black neon-text">{formatMoney(product.price, currency)}</div>
+            <div className="flex flex-col">
+              {product.variants && product.variants.length > 0 && (
+                <span className="text-[10px] text-muted-foreground">يبدأ من</span>
+              )}
+              <div className="flex items-center gap-2">
+                <div className="font-display text-xl font-black neon-text">
+                  {formatMoney(product.variants && product.variants.length > 0 ? Math.min(...product.variants.map((v) => v.price)) : product.price, currency)}
+                </div>
+                {!product.variants?.length && product.compareAtPrice && product.compareAtPrice > product.price && (
+                  <div className="text-xs text-muted-foreground line-through">{formatMoney(product.compareAtPrice, currency)}</div>
+                )}
+              </div>
+            </div>
             <Button
               size="sm"
               onClick={() => { cartActions.add(product.id); toast.success("تمت الإضافة للسلة"); }}

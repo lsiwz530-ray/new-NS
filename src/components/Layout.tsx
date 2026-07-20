@@ -30,6 +30,18 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="relative min-h-screen text-foreground" dir="rtl">
       <NetworkBackground />
       <div className="relative z-10 flex min-h-screen flex-col">
+        {settings.announcementEnabled && settings.announcementText && (
+          <div className="relative z-50 gradient-purple overflow-hidden py-2 whitespace-nowrap">
+            <div className="marquee-track inline-flex">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <span key={i} className="mx-8 text-sm font-bold text-white">{settings.announcementText}</span>
+              ))}
+              {Array.from({ length: 2 }).map((_, i) => (
+                <span key={"b" + i} className="mx-8 text-sm font-bold text-white">{settings.announcementText}</span>
+              ))}
+            </div>
+          </div>
+        )}
         <header className="sticky top-0 z-40 glass border-b border-primary/20">
           <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-4">
             <Link to="/" className="flex items-center gap-2 shrink-0">

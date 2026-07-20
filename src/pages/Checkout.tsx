@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Layout } from "@/components/Layout";
-import { useStore, formatMoney, orderActions } from "@/lib/store";
+import { useStore, formatMoney, orderActions, couponActions } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -18,14 +18,35 @@ export default function Checkout() {
 
   const items = cart.map((ci) => {
     const p = products.find((pp) => pp.id === ci.productId);
-    return p ? { ...ci, product: p } : null;
+    if (!p) return null;
+    const variant = ci.variantId ? p.variants?.find((v) => v.id === ci.variantId) : undefined;
+    return { ...ci, product: p, unitPrice: variant ? variant.price : p.price, variantLabel: variant?.label };
   }).filter((x): x is NonNullable<typeof x> => !!x);
 
-  const total = items.reduce((a, it) => a + it.product.price * it.quantity, 0);
+  const subtotal = items.reduce((a, it) => a + it.unitPrice * it.quantity, 0);
 
   const [receipt, setReceipt] = useState<string>("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [couponInput, setCouponInput] = useState("");
+  const [coupon, setCoupon] = useState<{ code: string; percent: number } | null>(null);
+  const [checkingCoupon, setCheckingCoupon] = useState(false);
+  const discount = coupon ? Math.round(subtotal * coupon.percent) / 100 : 0;
+  const total = Math.max(0, subtotal - discount);
+
+  async function applyCoupon() {
+    if (!couponInput.trim()) return;
+    setCheckingCoupon(true);
+    const res = await couponActions.validate(couponInput.trim());
+    setCheckingCoupon(false);
+    if (res.valid) {
+      setCoupon({ code: res.code!, percent: res.percent! });
+      toast.success(`تم تفعيل كوبون خصم ${res.percent}%`);
+    } else {
+      setCoupon(null);
+      toast.error("كوبون غير صالح");
+    }
+  }
 
   if (!currentUser) {
     return (
@@ -67,7 +88,7 @@ export default function Checkout() {
     if (!receipt) { toast.error("ارفع صورة إيصال التحويل"); return; }
     setSubmitting(true);
     try {
-      const order = await orderActions.create({ username: currentUser!, receiptImage: receipt, note });
+      const order = await orderActions.create({ username: currentUser!, receiptImage: receipt, note, couponCode: coupon?.code });
       toast.success("تم استلام طلبك — بانتظار التأكيد");
       navigate({ to: "/order/$id", params: { id: order.id } });
     } catch {
@@ -89,10 +110,14 @@ export default function Checkout() {
                 <CreditCard className="w-5 h-5 text-primary" />
                 <h2 className="font-display text-xl font-bold neon-text">تفاصيل التحويل</h2>
               </div>
-              <div className="space-y-3">
-                <PayRow label="البنك" value={settings.bankName} icon={settings.paymentIcons.ahliBank} />
-                <PayRow label="اسم المستفيد" value={settings.accountName} />
-                <PayRow label="IBAN" value={settings.iban} onCopy={() => copy(settings.iban)} mono icon={settings.paymentIcons.ahliBank} />
+              <div className="space-y-4">
+                {(settings.ibans && settings.ibans.length ? settings.ibans : [{ id: "x", bankName: settings.bankName, accountName: settings.accountName, iban: settings.iban }]).map((b) => (
+                  <div key={b.id} className="rounded-xl border border-primary/20 p-3 space-y-2 bg-secondary/20">
+                    <PayRow label="البنك" value={b.bankName} icon={settings.paymentIcons.ahliBank} />
+                    <PayRow label="اسم المستفيد" value={b.accountName} />
+                    <PayRow label="IBAN" value={b.iban} onCopy={() => copy(b.iban)} mono />
+                  </div>
+                ))}
                 <PayRow
                   label="رقم الجوال (STC Pay / Barq)"
                   value={settings.phone}
@@ -141,19 +166,48 @@ export default function Checkout() {
             <h3 className="font-display text-lg font-bold neon-text mb-4">ملخص الطلب</h3>
             <div className="space-y-3">
               {items.map((it) => (
-                <div key={it.productId} className="flex gap-3 items-center">
+                <div key={it.productId + (it.variantId || "")} className="flex gap-3 items-center">
                   <ProductImage product={it.product} className="w-12 h-12 rounded-lg flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm truncate">{it.product.name}</div>
+                    <div className="font-semibold text-sm truncate">{it.product.name}{it.variantLabel ? ` — ${it.variantLabel}` : ""}</div>
                     <div className="text-xs text-muted-foreground">× {it.quantity}</div>
                   </div>
-                  <div className="text-sm font-bold text-primary">{formatMoney(it.product.price * it.quantity, settings.currency)}</div>
+                  <div className="text-sm font-bold text-primary">{formatMoney(it.unitPrice * it.quantity, settings.currency)}</div>
                 </div>
               ))}
             </div>
-            <div className="border-t border-primary/20 mt-4 pt-4 flex items-center justify-between">
-              <span className="text-muted-foreground">الإجمالي</span>
-              <span className="font-display text-2xl font-black neon-text-strong">{formatMoney(total, settings.currency)}</span>
+
+            <div className="mt-4 flex gap-2">
+              <input
+                value={couponInput}
+                onChange={(e) => setCouponInput(e.target.value)}
+                placeholder="كود الخصم"
+                className="flex-1 rounded-lg bg-secondary/50 border border-primary/20 px-3 py-2 text-sm"
+              />
+              <Button size="sm" variant="outline" disabled={checkingCoupon} onClick={applyCoupon} className="border-primary/40">تطبيق</Button>
+            </div>
+            {coupon && (
+              <div className="mt-2 text-xs text-emerald-400 flex items-center justify-between">
+                <span>كوبون {coupon.code} مُفعّل (-{coupon.percent}%)</span>
+                <button onClick={() => { setCoupon(null); setCouponInput(""); }} className="text-muted-foreground hover:text-destructive">إزالة</button>
+              </div>
+            )}
+
+            <div className="border-t border-primary/20 mt-4 pt-4 space-y-1">
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>المجموع الفرعي</span>
+                <span>{formatMoney(subtotal, settings.currency)}</span>
+              </div>
+              {discount > 0 && (
+                <div className="flex items-center justify-between text-sm text-emerald-400">
+                  <span>الخصم</span>
+                  <span>- {formatMoney(discount, settings.currency)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-muted-foreground">الإجمالي</span>
+                <span className="font-display text-2xl font-black neon-text-strong">{formatMoney(total, settings.currency)}</span>
+              </div>
             </div>
             <div className="mt-4 text-xs text-muted-foreground">المستخدم: <span className="text-primary font-semibold">{currentUser}</span></div>
           </div>

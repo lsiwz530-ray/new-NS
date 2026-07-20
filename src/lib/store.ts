@@ -1,10 +1,13 @@
 // API-backed store — talks to the Express backend, syncs via polling.
 import { useSyncExternalStore } from "react";
 
+export type ProductVariant = { id: string; label: string; price: number };
 export type Product = {
   id: string; name: string; description: string; price: number;
+  compareAtPrice?: number;
   image: string; category: string; keys: string[]; deliveryInfo: string;
   featured?: boolean; createdAt: number;
+  variants?: ProductVariant[];
 };
 export type OrderItem = {
   productId: string; productName: string; productDescription: string;
@@ -16,10 +19,16 @@ export type Order = {
   status: "pending" | "completed" | "rejected";
   createdAt: number; completedAt?: number;
   rating?: number; reviewComment?: string; reviewedAt?: number; reviewHidden?: boolean;
+  couponCode?: string; discount?: number;
 };
 export type User = { username: string; createdAt: number };
 export type StaffUser = { username: string; createdAt: number };
-export type HomeSection = { id: string; type: "featured" | "all" | "category" | "reviews" | "banners"; title: string; category?: string };
+export type HomeSection = {
+  id: string; type: "featured" | "all" | "category" | "reviews" | "banners"; title: string;
+  category?: string; productIds?: string[];
+};
+export type IbanEntry = { id: string; bankName: string; accountName: string; iban: string };
+export type Coupon = { code: string; percent: number; active: boolean; createdAt: number };
 export type SiteSettings = {
   siteName: string; tagline: string; heroTitle: string; heroSubtitle: string;
   iban: string; bankName: string; accountName: string; phone: string;
@@ -27,9 +36,12 @@ export type SiteSettings = {
   paymentIcons: { stcPay: string; barq: string; ahliBank: string };
   banners: string[];
   homeSections: HomeSection[];
+  ibans: IbanEntry[];
+  announcementText: string;
+  announcementEnabled: boolean;
 };
 export type PublicReview = { orderId: string; username: string; rating: number; comment: string; createdAt: number };
-export type CartItem = { productId: string; quantity: number };
+export type CartItem = { productId: string; quantity: number; variantId?: string };
 export type ChatMessage = { id: string; username: string; sender: "user" | "admin" | "system"; senderName: string; text: string; createdAt: number };
 export type ChatThread = {
   username: string; accepted: number; acceptedBy: string | null;
@@ -38,7 +50,7 @@ export type ChatThread = {
 };
 
 type State = {
-  products: Product[]; orders: Order[]; users: User[]; staff: StaffUser[];
+  products: Product[]; orders: Order[]; users: User[]; staff: StaffUser[]; coupons: Coupon[];
   settings: SiteSettings; cart: CartItem[];
   currentUser: string | null; adminToken: string | null; staffName: string | null;
 };
@@ -51,15 +63,18 @@ const DEFAULT_SETTINGS: SiteSettings = {
   iban: "SA00 0000 0000 0000 0000 0000", bankName: "الراجحي",
   accountName: "North Store", phone: "05xxxxxxxx", currency: "ر.س",
   discordUrl: "", twitterUrl: "", footerText: "© NorthSite — جميع الحقوق محفوظة",
-  paymentIcons: { stcPay: "", barq: "", ahliBank: "" },
+  paymentIcons: { stcPay: "/payment-icons/stcpay.svg", barq: "/payment-icons/barq.svg", ahliBank: "/payment-icons/alahli.svg" },
   banners: [],
   homeSections: [
     { id: "sec-featured", type: "featured", title: "المميزة" },
     { id: "sec-all", type: "all", title: "كل المنتجات" },
   ],
+  ibans: [{ id: "iban-1", bankName: "الراجحي", accountName: "North Store", iban: "SA00 0000 0000 0000 0000 0000" }],
+  announcementText: "",
+  announcementEnabled: false,
 };
 const INITIAL: State = {
-  products: [], orders: [], users: [], staff: [], settings: DEFAULT_SETTINGS,
+  products: [], orders: [], users: [], staff: [], coupons: [], settings: DEFAULT_SETTINGS,
   cart: [], currentUser: null, adminToken: null, staffName: null,
 };
 
@@ -101,10 +116,12 @@ async function fetchState() {
       orders: data.orders || [],
       users: data.users || [],
       staff: data.staff || [],
+      coupons: data.coupons || [],
       settings: {
         ...DEFAULT_SETTINGS, ...(data.settings || {}),
         paymentIcons: { ...DEFAULT_SETTINGS.paymentIcons, ...(data.settings?.paymentIcons || {}) },
         banners: data.settings?.banners || [],
+        ibans: (data.settings?.ibans && data.settings.ibans.length) ? data.settings.ibans : DEFAULT_SETTINGS.ibans,
       },
     };
     emit();
@@ -156,21 +173,21 @@ export const productActions = {
 
 // ---------- Cart (client) ----------
 export const cartActions = {
-  add(productId: string, quantity = 1) {
-    const existing = state.cart.find((c) => c.productId === productId);
+  add(productId: string, quantity = 1, variantId?: string) {
+    const existing = state.cart.find((c) => c.productId === productId && c.variantId === variantId);
     const cart = existing
-      ? state.cart.map((c) => c.productId === productId ? { ...c, quantity: c.quantity + quantity } : c)
-      : [...state.cart, { productId, quantity }];
+      ? state.cart.map((c) => (c.productId === productId && c.variantId === variantId) ? { ...c, quantity: c.quantity + quantity } : c)
+      : [...state.cart, { productId, quantity, variantId }];
     set({ cart }); saveClient();
   },
-  setQty(productId: string, quantity: number) {
+  setQty(productId: string, quantity: number, variantId?: string) {
     const cart = quantity <= 0
-      ? state.cart.filter((c) => c.productId !== productId)
-      : state.cart.map((c) => c.productId === productId ? { ...c, quantity } : c);
+      ? state.cart.filter((c) => !(c.productId === productId && c.variantId === variantId))
+      : state.cart.map((c) => (c.productId === productId && c.variantId === variantId) ? { ...c, quantity } : c);
     set({ cart }); saveClient();
   },
-  remove(productId: string) {
-    set({ cart: state.cart.filter((c) => c.productId !== productId) }); saveClient();
+  remove(productId: string, variantId?: string) {
+    set({ cart: state.cart.filter((c) => !(c.productId === productId && c.variantId === variantId)) }); saveClient();
   },
   clear() { set({ cart: [] }); saveClient(); },
 };
@@ -237,7 +254,7 @@ export const settingsActions = {
 
 // ---------- Orders ----------
 export const orderActions = {
-  async create(input: { username: string; receiptImage: string; note: string }): Promise<Order> {
+  async create(input: { username: string; receiptImage: string; note: string; couponCode?: string }): Promise<Order> {
     const data = await api("/api/orders", {
       method: "POST",
       body: JSON.stringify({
@@ -245,6 +262,7 @@ export const orderActions = {
         items: state.cart,
         receiptImage: input.receiptImage,
         note: input.note,
+        couponCode: input.couponCode,
       }),
     });
     set({ cart: [] }); saveClient();
@@ -310,6 +328,33 @@ export const staffActions = {
       if (data.ok) { set({ adminToken: data.token, staffName: data.username }); saveClient(); fetchState(); return true; }
     } catch {}
     return false;
+  },
+};
+
+// ---------- Coupons ----------
+export const couponActions = {
+  async validate(code: string): Promise<{ valid: boolean; code?: string; percent?: number }> {
+    try {
+      const res = await fetch("/api/coupons/validate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      return await res.json();
+    } catch {
+      return { valid: false };
+    }
+  },
+  async add(code: string, percent: number) {
+    await api("/api/admin/coupons", { method: "POST", body: JSON.stringify({ code, percent }) });
+    await fetchState();
+  },
+  async setActive(code: string, active: boolean) {
+    await api("/api/admin/coupons/" + code, { method: "PATCH", body: JSON.stringify({ active }) });
+    await fetchState();
+  },
+  async remove(code: string) {
+    await api("/api/admin/coupons/" + code, { method: "DELETE" });
+    await fetchState();
   },
 };
 

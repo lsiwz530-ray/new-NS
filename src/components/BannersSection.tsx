@@ -11,18 +11,20 @@ export function BannersSection({ title, banners }: { title: string; banners: str
           <div className="h-px flex-1 mx-6 bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
         </div>
 
-        <div className="flex gap-4 overflow-x-auto scrollbar-thin snap-x snap-mandatory pb-2">
+        <div className="flex gap-0 overflow-x-auto scrollbar-thin snap-x snap-mandatory rounded-2xl neon-border">
           {banners.map((src, i) => (
             <div
               key={i}
-              className="glass neon-border rounded-2xl flex-shrink-0 snap-center overflow-hidden bg-black/20 flex items-center justify-center"
-              style={{ width: "min(90vw, 640px)", maxHeight: "70vh" }}
+              className="w-full flex-shrink-0 snap-center overflow-hidden bg-black/20"
+              style={{ minHeight: "80vh" }}
             >
-              {/* object-contain: the full image is always shown, nothing gets cropped */}
-              <img src={src} alt={`banner-${i}`} className="w-full h-full object-contain" />
+              <img src={src} alt={`banner-${i}`} className="w-full h-full object-cover" style={{ minHeight: "80vh" }} />
             </div>
           ))}
         </div>
+        {banners.length > 1 && (
+          <p className="text-center text-xs text-muted-foreground mt-3">اسحب يمينًا لعرض البنر التالي — {banners.length} بنرات</p>
+        )}
       </div>
     </section>
   );
