@@ -198,12 +198,29 @@ const ADMIN_USER = process.env.ADMIN_USER || "North";
 const ADMIN_PASS = process.env.ADMIN_PASS || "North123";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || crypto.randomBytes(24).toString("hex");
 
-// -------- Discord bot: order notifications + admin broadcast DMs --------
-// Set DISCORD_BOT_TOKEN (the bot's token, NOT the OAuth client secret) and
-// DISCORD_NOTIFY_USER_ID as Railway env vars. The bot must share a server
-// with the recipient (or have DMs open) to be able to message them.
+// -------- Discord bot: order/chat notifications (posted to a channel) --------
+// Set DISCORD_BOT_TOKEN (the bot's token, NOT the OAuth client secret) as a
+// Railway env var. The bot must be a member of the server that owns
+// DISCORD_NOTIFY_CHANNEL_ID and have "Send Messages" + "Attach Files" perms
+// there.
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || "";
 const DISCORD_NOTIFY_USER_ID = process.env.DISCORD_NOTIFY_USER_ID || "650307900090089503";
+// All order + support-chat + store notifications go to this channel.
+const DISCORD_NOTIFY_CHANNEL_ID = process.env.DISCORD_NOTIFY_CHANNEL_ID || "1528708186197200978";
+
+const DIVIDER_IMAGE_PATH = path.join(__dirname, "assets", "divider.png");
+let dividerImageBuffer = null;
+function getDividerImageBuffer() {
+  if (dividerImageBuffer) return dividerImageBuffer;
+  try {
+    dividerImageBuffer = fs.readFileSync(DIVIDER_IMAGE_PATH);
+  } catch (e) {
+    console.error("[discord] could not read divider image:", e.message);
+    dividerImageBuffer = null;
+  }
+  return dividerImageBuffer;
+}
+
 const dmChannelCache = new Map(); // discordUserId -> channelId
 async function getDiscordDmChannel(discordUserId) {
   if (dmChannelCache.has(discordUserId)) return dmChannelCache.get(discordUserId);
@@ -219,6 +236,11 @@ async function getDiscordDmChannel(discordUserId) {
 }
 async function sendDiscordDM(discordUserId, payload) {
   const channelId = await getDiscordDmChannel(discordUserId);
+  return sendDiscordChannelMessage(channelId, payload);
+}
+
+// Plain JSON message to any channel (no attachment).
+async function sendDiscordChannelMessage(channelId, payload) {
   const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
     method: "POST",
     headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, "Content-Type": "application/json" },
@@ -227,20 +249,47 @@ async function sendDiscordDM(discordUserId, payload) {
   if (!res.ok) throw new Error(`discord send failed: ${res.status} ${await res.text()}`);
   return res.json();
 }
+
+// Sends the purple divider/logo image as its own message right after a
+// notification embed, so every new order / support message / store message
+// in the channel is visually separated by it.
+async function sendDividerImage(channelId) {
+  const buf = getDividerImageBuffer();
+  if (!buf) return;
+  try {
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify({ attachments: [{ id: 0, filename: "divider.png" }] }));
+    form.append("files[0]", new Blob([buf], { type: "image/png" }), "divider.png");
+    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+      body: form,
+    });
+    if (!res.ok) throw new Error(`discord divider send failed: ${res.status} ${await res.text()}`);
+  } catch (e) {
+    console.error("[discord] divider image error:", e.message);
+  }
+}
+
+// Sends an embed to the shared notify channel, then follows it with the
+// divider image as requested.
+async function sendChannelNotification(embed) {
+  if (!DISCORD_BOT_TOKEN) { console.warn("[discord] DISCORD_BOT_TOKEN not set, skipping notification"); return; }
+  await sendDiscordChannelMessage(DISCORD_NOTIFY_CHANNEL_ID, { embeds: [embed] });
+  await sendDividerImage(DISCORD_NOTIFY_CHANNEL_ID);
+}
+
 async function notifyDiscordNewChatMessage(username, text) {
   if (!DISCORD_BOT_TOKEN) return;
   try {
     const embed = {
-      title: "💬 رسالة دعم جديدة",
+      author: { name: "رسالة دعم جديدة", icon_url: "https://cdn-icons-png.flaticon.com/512/2462/2462719.png" },
       color: 0x00c2ff,
-      fields: [
-        { name: "من", value: username, inline: true },
-        { name: "الرسالة", value: text.slice(0, 1000) },
-      ],
+      description: `**من:** ${username}\n\n${text.slice(0, 1500)}`,
       timestamp: new Date().toISOString(),
-      footer: { text: "NorthSite — دردشة الدعم" },
+      footer: { text: "NorthSite • دردشة الدعم" },
     };
-    await sendDiscordDM(DISCORD_NOTIFY_USER_ID, { embeds: [embed] });
+    await sendChannelNotification(embed);
   } catch (e) {
     console.error("[discord] chat notify error:", e.message);
   }
@@ -297,25 +346,29 @@ async function fetchAllGuildMembers() {
 async function notifyDiscordNewOrder(order) {
   if (!DISCORD_BOT_TOKEN) { console.warn("[discord] DISCORD_BOT_TOKEN not set, skipping order notification"); return; }
   try {
-    const itemsText = order.items.map((it) =>
-      `**${it.productName}**\nالكمية: ${it.quantity} — السعر: ${it.price}\n${it.deliveryInfo ? `تسليم: ${it.deliveryInfo}` : ""}`
-    ).join("\n\n") || "لا توجد عناصر";
+    // One line per product, kept short and evenly formatted instead of a
+    // stacked field per item — reads cleaner in the RTL client.
+    const itemsText = order.items.map((it) => {
+      const delivery = it.deliveryInfo ? `\n> ${it.deliveryInfo}` : "";
+      return `• **${it.productName}** — الكمية \`${it.quantity}\` × السعر \`${it.price}\`${delivery}`;
+    }).join("\n") || "لا توجد عناصر";
+
     const embed = {
-      title: "📦 طلب جديد على NorthSite",
+      author: { name: "طلب جديد على NorthSite", icon_url: "https://cdn-icons-png.flaticon.com/512/3081/3081986.png" },
       color: 0x9b5cff,
       fields: [
-        { name: "رقم الطلب", value: `\`${order.id}\``, inline: true },
-        { name: "من", value: order.username, inline: true },
-        { name: "الإجمالي", value: `${order.total}`, inline: true },
-        ...(order.couponCode ? [{ name: "الكوبون", value: `${order.couponCode} (خصم ${order.discount})`, inline: true }] : []),
-        { name: "المنتجات", value: itemsText.slice(0, 1000) },
-        ...(order.note ? [{ name: "ملاحظة العميل", value: order.note.slice(0, 500) }] : []),
-        { name: "الحالة", value: "🟡 بانتظار المراجعة" },
+        { name: "📄 رقم الطلب", value: `\`${order.id}\``, inline: true },
+        { name: "👤 من", value: order.username, inline: true },
+        { name: "💰 الإجمالي", value: `${order.total}`, inline: true },
+        ...(order.couponCode ? [{ name: "🎟️ الكوبون", value: `${order.couponCode} (خصم ${order.discount})`, inline: false }] : []),
+        { name: "🛒 المنتجات", value: itemsText.slice(0, 1000), inline: false },
+        ...(order.note ? [{ name: "📝 ملاحظة العميل", value: order.note.slice(0, 500), inline: false }] : []),
+        { name: "الحالة", value: "🟡 بانتظار المراجعة", inline: false },
       ],
       timestamp: new Date(order.createdAt).toISOString(),
       footer: { text: "NorthSite" },
     };
-    await sendDiscordDM(DISCORD_NOTIFY_USER_ID, { embeds: [embed] });
+    await sendChannelNotification(embed);
   } catch (e) {
     console.error("[discord] notify error:", e.message);
   }
