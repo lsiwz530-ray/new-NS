@@ -36,38 +36,20 @@ export default function Account() {
   return (
     <Layout>
       <div className="mx-auto max-w-5xl px-4 py-12">
-        <div className="glass neon-border rounded-2xl overflow-hidden mb-6">
-          {discordProfile?.linked && discordProfile.banner ? (
-            <div className="h-28 sm:h-36 w-full bg-cover bg-center" style={{ backgroundImage: `url(${discordProfile.banner})` }} />
-          ) : discordProfile?.linked ? (
-            <div className="h-20 w-full" style={{ background: discordProfile.accentColor != null ? `#${discordProfile.accentColor.toString(16).padStart(6, "0")}` : undefined }} />
-          ) : null}
-          <div className="p-6 flex items-center gap-4">
-            {discordProfile?.linked && discordProfile.avatar ? (
-              <img
-                src={discordProfile.avatar}
-                alt={currentUser}
-                className="w-16 h-16 rounded-full neon-glow object-cover border-2 border-background -mt-2"
-              />
-            ) : (
-              <div className="w-16 h-16 rounded-full gradient-purple neon-glow flex items-center justify-center text-2xl font-black text-white font-display">
-                {currentUser[0].toUpperCase()}
-              </div>
-            )}
+        {discordProfile?.linked ? (
+          <DiscordProfileCard profile={discordProfile} orderCount={orders.length} />
+        ) : (
+          <div className="glass neon-border rounded-2xl p-6 mb-6 flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full gradient-purple neon-glow flex items-center justify-center text-2xl font-black text-white font-display">
+              {currentUser[0].toUpperCase()}
+            </div>
             <div>
-              <div className="text-xs text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">
-                أهلًا
-                {discordProfile?.linked && (
-                  <span className="inline-flex items-center gap-1 text-[10px] bg-[#5865F2]/20 text-[#8b96ff] px-2 py-0.5 rounded-full font-bold">
-                    مرتبط بديسكورد
-                  </span>
-                )}
-              </div>
+              <div className="text-xs text-muted-foreground uppercase tracking-widest">أهلًا</div>
               <h1 className="font-display text-3xl font-black neon-text-strong">{currentUser}</h1>
               <div className="text-sm text-muted-foreground">{orders.length} طلب</div>
             </div>
           </div>
-        </div>
+        )}
 
         <Tabs defaultValue="all">
           <TabsList className="bg-secondary/50">
@@ -82,6 +64,56 @@ export default function Account() {
         </Tabs>
       </div>
     </Layout>
+  );
+}
+
+function DiscordProfileCard({ profile, orderCount }: { profile: DiscordProfile; orderCount: number }) {
+  const accent = profile.accentColor != null
+    ? `#${profile.accentColor.toString(16).padStart(6, "0")}`
+    : "#5865F2";
+  return (
+    <div className="mb-6 max-w-sm">
+      <div
+        className="rounded-2xl overflow-hidden shadow-xl"
+        style={{ background: "#232428" }}
+      >
+        {/* Banner */}
+        <div
+          className="h-24 w-full bg-cover bg-center"
+          style={{
+            backgroundImage: profile.banner ? `url(${profile.banner})` : undefined,
+            backgroundColor: profile.banner ? undefined : accent,
+          }}
+        />
+        <div className="px-4 pb-4">
+          {/* Avatar overlapping the banner, Discord-style ring */}
+          <div className="-mt-10 mb-2">
+            <div className="w-20 h-20 rounded-full p-1" style={{ background: "#232428" }}>
+              {profile.avatar ? (
+                <img src={profile.avatar} alt={profile.globalName} className="w-full h-full rounded-full object-cover" />
+              ) : (
+                <div className="w-full h-full rounded-full bg-primary" />
+              )}
+            </div>
+          </div>
+
+          <div className="bg-[#111214] rounded-xl p-3">
+            <div className="font-bold text-white text-lg leading-tight">{profile.globalName}</div>
+            {profile.username && (
+              <div className="text-sm text-[#b5bac1] leading-tight">@{profile.username}</div>
+            )}
+            <div className="h-px bg-white/10 my-3" />
+            <div className="text-xs text-[#b5bac1]">
+              حساب متجرنا • <span className="text-white font-semibold">{orderCount}</span> طلب
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground px-1">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#5865F2" }} />
+        مرتبط بحساب ديسكورد
+      </div>
+    </div>
   );
 }
 

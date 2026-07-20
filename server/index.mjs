@@ -84,6 +84,7 @@ async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordAvatar" TEXT`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordBanner" TEXT`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordGlobalName" TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordUsername" TEXT`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "discordAccent" INTEGER`);
 }
 
@@ -382,14 +383,15 @@ app.get("/api/auth/discord/callback", asyncRoute(async (req, res) => {
       ? `https://cdn.discordapp.com/banners/${du.id}/${du.banner}.${du.banner.startsWith("a_") ? "gif" : "png"}?size=900`
       : null;
     const globalName = du.global_name || du.username || ("لاعب" + du.id.slice(-4));
+    const discordUsername = du.username || null;
 
     const existing = await one(`SELECT * FROM users WHERE "discordId"=$1`, [du.id]);
     let finalUsername;
     if (existing) {
       finalUsername = existing.username;
       await pool.query(
-        `UPDATE users SET "discordAvatar"=$1, "discordBanner"=$2, "discordGlobalName"=$3, "discordAccent"=$4 WHERE username=$5`,
-        [avatar, banner, globalName, du.accent_color ?? null, finalUsername]
+        `UPDATE users SET "discordAvatar"=$1, "discordBanner"=$2, "discordGlobalName"=$3, "discordAccent"=$4, "discordUsername"=$5 WHERE username=$6`,
+        [avatar, banner, globalName, du.accent_color ?? null, discordUsername, finalUsername]
       );
     } else {
       // Pick a free username based on the Discord display name.
@@ -400,9 +402,9 @@ app.get("/api/auth/discord/callback", asyncRoute(async (req, res) => {
       }
       finalUsername = candidate;
       await pool.query(
-        `INSERT INTO users (username, password, "createdAt", "discordId", "discordAvatar", "discordBanner", "discordGlobalName", "discordAccent")
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [finalUsername, null, Date.now(), du.id, avatar, banner, globalName, du.accent_color ?? null]
+        `INSERT INTO users (username, password, "createdAt", "discordId", "discordAvatar", "discordBanner", "discordGlobalName", "discordAccent", "discordUsername")
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [finalUsername, null, Date.now(), du.id, avatar, banner, globalName, du.accent_color ?? null, discordUsername]
       );
     }
 
@@ -435,7 +437,7 @@ app.post("/api/auth/discord/session", asyncRoute(async (req, res) => {
 
 app.get("/api/users/:username/discord-profile", asyncRoute(async (req, res) => {
   const row = await one(
-    `SELECT "discordId", "discordAvatar", "discordBanner", "discordGlobalName", "discordAccent" FROM users WHERE lower(username)=lower($1)`,
+    `SELECT "discordId", "discordAvatar", "discordBanner", "discordGlobalName", "discordAccent", "discordUsername" FROM users WHERE lower(username)=lower($1)`,
     [req.params.username]
   );
   if (!row || !row.discordId) return res.json({ linked: false });
@@ -444,6 +446,7 @@ app.get("/api/users/:username/discord-profile", asyncRoute(async (req, res) => {
     avatar: row.discordAvatar,
     banner: row.discordBanner,
     globalName: row.discordGlobalName,
+    username: row.discordUsername,
     accentColor: row.discordAccent,
   });
 }));

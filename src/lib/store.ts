@@ -23,7 +23,7 @@ export type Order = {
   couponCode?: string; discount?: number;
 };
 export type User = { username: string; createdAt: number };
-export type DiscordProfile = { linked: boolean; avatar?: string; banner?: string; globalName?: string; accentColor?: number | null };
+export type DiscordProfile = { linked: boolean; avatar?: string; banner?: string; globalName?: string; username?: string; accentColor?: number | null };
 export type StaffUser = { username: string; createdAt: number };
 export type HomeSection = {
   id: string; type: "featured" | "all" | "category" | "reviews" | "banners"; title: string;
