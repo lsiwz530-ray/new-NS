@@ -2,8 +2,8 @@ import { useNavigate, Link } from "@tanstack/react-router";
 import {
   useStore, adminActions, productActions, settingsActions, orderActions,
   staffActions, chatActions, statsActions, reviewAdminActions, couponActions,
-  formatMoney, type Product, type Order, type SiteSettings, type HomeSection,
-  type ChatThread, type ChatMessage, type SiteStats, type Coupon,
+  discordActions, formatMoney, type Product, type Order, type SiteSettings, type HomeSection,
+  type ChatThread, type ChatMessage, type SiteStats, type Coupon, type DiscordLinkedUser,
 } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,6 +68,7 @@ export default function Dashboard() {
               <TabsTrigger value="reviews"><Star className="w-4 h-4 ml-1" /> التقييمات</TabsTrigger>
               <TabsTrigger value="team"><UserCog className="w-4 h-4 ml-1" /> الفريق</TabsTrigger>
               <TabsTrigger value="chats"><MessageCircle className="w-4 h-4 ml-1" /> الدردشات</TabsTrigger>
+              <TabsTrigger value="discord"><Send className="w-4 h-4 ml-1" /> رسائل ديسكورد</TabsTrigger>
               <TabsTrigger value="stats"><BarChart3 className="w-4 h-4 ml-1" /> الإحصائيات</TabsTrigger>
               <TabsTrigger value="settings"><SettingsIcon className="w-4 h-4 ml-1" /> الإعدادات</TabsTrigger>
             </TabsList>
@@ -79,6 +80,7 @@ export default function Dashboard() {
             <TabsContent value="reviews" className="mt-4"><ReviewsAdmin /></TabsContent>
             <TabsContent value="team" className="mt-4"><TeamAdmin /></TabsContent>
             <TabsContent value="chats" className="mt-4"><ChatsAdmin /></TabsContent>
+            <TabsContent value="discord" className="mt-4"><DiscordBroadcastAdmin /></TabsContent>
             <TabsContent value="stats" className="mt-4"><StatsAdmin /></TabsContent>
             <TabsContent value="settings" className="mt-4"><SettingsAdmin /></TabsContent>
           </Tabs>
@@ -566,6 +568,88 @@ function GalleryUrlAdder({ onAdd }: { onAdd: (type: "image" | "gif" | "video", u
       <Button type="button" size="sm" variant="outline" className="border-primary/50 h-8" onClick={() => { onAdd(type, url); setUrl(""); }}>
         <Plus className="w-3 h-3 ml-1" /> إضافة
       </Button>
+    </div>
+  );
+}
+
+function DiscordBroadcastAdmin() {
+  const [users, setUsers] = useState<DiscordLinkedUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    discordActions.fetchUsers().then((u) => { setUsers(u); setLoading(false); });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  function toggle(id: string) {
+    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function toggleAll() {
+    setSelected((s) => s.size === users.length ? new Set() : new Set(users.map((u) => u.discordId)));
+  }
+
+  async function send() {
+    if (!selected.size) { toast.error("اختر مستلم واحد على الأقل"); return; }
+    if (!message.trim()) { toast.error("اكتب نص الرسالة"); return; }
+    setSending(true);
+    try {
+      const res = await discordActions.broadcast(Array.from(selected), message.trim());
+      if (res.ok) toast.success(`تم الإرسال إلى ${res.sent} عضو`);
+      else toast.warning(`تم الإرسال إلى ${res.sent}، وفشل ${res.failed.length} (ربما ما فتحوا الخاص للبوت)`);
+      setMessage("");
+    } catch (e: any) {
+      toast.error(e.message || "فشل الإرسال");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="glass neon-border rounded-xl p-4">
+        <div className="text-sm text-muted-foreground mb-1">
+          يرسل البوت رسالة خاصة (منشن + نص عادي بدون embed) لكل عضو اخترته من المسجلين دخول عبر ديسكورد بالموقع.
+        </div>
+        <div className="text-xs text-muted-foreground">
+          ملاحظة: يشمل فقط الأعضاء اللي سجلوا دخول بحسابهم في ديسكورد على الموقع — الإرسال لكل أعضاء سيرفراتك المشتركة مع البوت (بدون ما يسجلوا بالموقع) يحتاج صلاحية إضافية خاصة من ديسكورد غير مفعّلة هنا.
+        </div>
+      </div>
+
+      <div className="glass neon-border rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <Label>المستلمون ({selected.size}/{users.length})</Label>
+          <Button type="button" size="sm" variant="outline" className="border-primary/50" onClick={toggleAll}>
+            {selected.size === users.length && users.length > 0 ? "إلغاء تحديد الكل" : "تحديد الكل"}
+          </Button>
+        </div>
+        {loading ? (
+          <div className="text-sm text-muted-foreground">جاري التحميل...</div>
+        ) : users.length === 0 ? (
+          <div className="text-sm text-muted-foreground">لا يوجد أعضاء سجلوا دخول عبر ديسكورد بعد.</div>
+        ) : (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-72 overflow-y-auto pl-1">
+            {users.map((u) => (
+              <label key={u.discordId} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-sm ${selected.has(u.discordId) ? "border-primary bg-primary/10" : "border-transparent bg-secondary/40"}`}>
+                <input type="checkbox" checked={selected.has(u.discordId)} onChange={() => toggle(u.discordId)} className="accent-primary" />
+                {u.discordAvatar && <img src={u.discordAvatar} className="w-6 h-6 rounded-full" alt="" />}
+                <span className="truncate">{u.discordGlobalName || u.discordUsername || u.username}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="glass neon-border rounded-xl p-4">
+        <Label>نص الرسالة</Label>
+        <Textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} placeholder="اكتب رسالتك هنا..." className="bg-secondary/50 mt-1" />
+        <Button onClick={send} disabled={sending} className="gradient-purple neon-glow mt-3">
+          <Send className="w-4 h-4 ml-1" /> {sending ? "جاري الإرسال..." : "إرسال"}
+        </Button>
+      </div>
     </div>
   );
 }

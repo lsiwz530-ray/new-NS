@@ -198,51 +198,62 @@ const ADMIN_USER = process.env.ADMIN_USER || "North";
 const ADMIN_PASS = process.env.ADMIN_PASS || "North123";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || crypto.randomBytes(24).toString("hex");
 
-// -------- Discord bot: order notifications --------
+// -------- Discord bot: order notifications + admin broadcast DMs --------
 // Set DISCORD_BOT_TOKEN (the bot's token, NOT the OAuth client secret) and
 // DISCORD_NOTIFY_USER_ID as Railway env vars. The bot must share a server
 // with the recipient (or have DMs open) to be able to message them.
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || "";
 const DISCORD_NOTIFY_USER_ID = process.env.DISCORD_NOTIFY_USER_ID || "650307900090089503";
-let discordDmChannelId = null;
-async function getDiscordDmChannel() {
-  if (discordDmChannelId) return discordDmChannelId;
+const dmChannelCache = new Map(); // discordUserId -> channelId
+async function getDiscordDmChannel(discordUserId) {
+  if (dmChannelCache.has(discordUserId)) return dmChannelCache.get(discordUserId);
   const res = await fetch("https://discord.com/api/v10/users/@me/channels", {
     method: "POST",
     headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ recipient_id: DISCORD_NOTIFY_USER_ID }),
+    body: JSON.stringify({ recipient_id: discordUserId }),
   });
   if (!res.ok) throw new Error(`discord channel open failed: ${res.status} ${await res.text()}`);
   const data = await res.json();
-  discordDmChannelId = data.id;
-  return discordDmChannelId;
+  dmChannelCache.set(discordUserId, data.id);
+  return data.id;
+}
+async function sendDiscordDM(discordUserId, payload) {
+  const channelId = await getDiscordDmChannel(discordUserId);
+  const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`discord send failed: ${res.status} ${await res.text()}`);
+  return res.json();
 }
 async function notifyDiscordNewOrder(order) {
   if (!DISCORD_BOT_TOKEN) { console.warn("[discord] DISCORD_BOT_TOKEN not set, skipping order notification"); return; }
   try {
-    const channelId = await getDiscordDmChannel();
     const itemsText = order.items.map((it) =>
-      `• ${it.productName} × ${it.quantity} — ${it.price} (${it.deliveryInfo ? it.deliveryInfo : "بدون تفاصيل تسليم"})`
-    ).join("\n") || "لا توجد عناصر";
-    const content =
-      `📦 **طلب جديد على NorthSite**\n` +
-      `**رقم الطلب:** ${order.id}\n` +
-      `**من:** ${order.username}\n` +
-      `**الإجمالي:** ${order.total}\n` +
-      (order.couponCode ? `**الكوبون:** ${order.couponCode} (خصم ${order.discount})\n` : "") +
-      `**المنتجات:**\n${itemsText}\n` +
-      (order.note ? `**ملاحظة العميل:** ${order.note}\n` : "") +
-      `**الحالة:** بانتظار المراجعة`;
-    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-      method: "POST",
-      headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ content: content.slice(0, 1900) }),
-    });
-    if (!res.ok) console.error("[discord] send failed:", res.status, await res.text());
+      `**${it.productName}**\nالكمية: ${it.quantity} — السعر: ${it.price}\n${it.deliveryInfo ? `تسليم: ${it.deliveryInfo}` : ""}`
+    ).join("\n\n") || "لا توجد عناصر";
+    const embed = {
+      title: "📦 طلب جديد على NorthSite",
+      color: 0x9b5cff,
+      fields: [
+        { name: "رقم الطلب", value: `\`${order.id}\``, inline: true },
+        { name: "من", value: order.username, inline: true },
+        { name: "الإجمالي", value: `${order.total}`, inline: true },
+        ...(order.couponCode ? [{ name: "الكوبون", value: `${order.couponCode} (خصم ${order.discount})`, inline: true }] : []),
+        { name: "المنتجات", value: itemsText.slice(0, 1000) },
+        ...(order.note ? [{ name: "ملاحظة العميل", value: order.note.slice(0, 500) }] : []),
+        { name: "الحالة", value: "🟡 بانتظار المراجعة" },
+      ],
+      timestamp: new Date(order.createdAt).toISOString(),
+      footer: { text: "NorthSite" },
+    };
+    await sendDiscordDM(DISCORD_NOTIFY_USER_ID, { embeds: [embed] });
   } catch (e) {
     console.error("[discord] notify error:", e.message);
   }
 }
+
 
 // -------- Discord OAuth2 --------
 // Set DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET / DISCORD_REDIRECT_URI / SITE_URL
@@ -872,6 +883,39 @@ app.get("/api/admin/stats", requireAdmin, asyncRoute(async (req, res) => {
   const rated = orders.filter((o) => o.rating);
   const avgRating = rated.length ? rated.reduce((a, o) => a + o.rating, 0) / rated.length : 0;
   res.json({ totalVisits: total, todayVisits: today, byCountry, byPath, recent, totalRevenue, avgRating });
+}));
+
+// -------- Admin: Discord DM broadcast --------
+// Lists every site user who signed in with Discord (has a linked discordId),
+// so the admin can pick recipients and message/mention them directly.
+app.get("/api/admin/discord-users", requireAdmin, asyncRoute(async (req, res) => {
+  const rows = await q(
+    `SELECT username, "discordId", "discordUsername", "discordGlobalName", "discordAvatar"
+     FROM users WHERE "discordId" IS NOT NULL ORDER BY username ASC`
+  );
+  res.json({ users: rows });
+}));
+
+app.post("/api/admin/discord/broadcast", requireAdmin, asyncRoute(async (req, res) => {
+  if (!DISCORD_BOT_TOKEN) return res.status(400).json({ error: "DISCORD_BOT_TOKEN غير مضبوط على السيرفر" });
+  const { discordIds, message } = req.body || {};
+  if (!Array.isArray(discordIds) || !discordIds.length) return res.status(400).json({ error: "اختر مستلم واحد على الأقل" });
+  if (!message || !String(message).trim()) return res.status(400).json({ error: "اكتب نص الرسالة" });
+
+  const results = [];
+  for (const discordId of discordIds) {
+    try {
+      // Mention them at the top, then the message as plain text (no embed).
+      await sendDiscordDM(discordId, { content: `<@${discordId}>\n${String(message).trim()}`.slice(0, 1900) });
+      results.push({ discordId, ok: true });
+    } catch (e) {
+      results.push({ discordId, ok: false, error: e.message });
+    }
+    // Small delay between DMs to stay well under Discord's rate limits.
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  const failed = results.filter((r) => !r.ok);
+  res.json({ ok: failed.length === 0, sent: results.length - failed.length, failed });
 }));
 
 // -------- Static file serving (production) --------

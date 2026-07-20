@@ -428,6 +428,21 @@ export const statsActions = {
   },
 };
 
+// ---------- Discord broadcast (admin) ----------
+export type DiscordLinkedUser = {
+  username: string; discordId: string;
+  discordUsername?: string; discordGlobalName?: string; discordAvatar?: string;
+};
+export const discordActions = {
+  async fetchUsers(): Promise<DiscordLinkedUser[]> {
+    const data = await api("/api/admin/discord-users");
+    return data.users || [];
+  },
+  async broadcast(discordIds: string[], message: string): Promise<{ ok: boolean; sent: number; failed: { discordId: string; error?: string }[] }> {
+    return api("/api/admin/discord/broadcast", { method: "POST", body: JSON.stringify({ discordIds, message }) });
+  },
+};
+
 // ---------- Compat helpers for existing UI ----------
 export const adminAuthed = () => !!state.adminToken;
 
