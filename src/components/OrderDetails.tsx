@@ -1,5 +1,6 @@
 import type { Order } from "@/lib/store";
 import { formatMoney, reviewActions } from "@/lib/store";
+import { RichDescription } from "@/components/RichDescription";
 import { Key, Copy, MessageSquare, Star } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -41,9 +42,9 @@ export function OrderDetailsView({ order, currency }: { order: Order; currency: 
               {order.status === "completed" && (
                 <>
                   {it.deliveryInfo && (
-                    <div className="mt-3 p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm whitespace-pre-wrap">
+                    <div className="mt-3 p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm">
                       <div className="text-xs font-bold text-primary mb-1">📦 معلومات التسليم</div>
-                      {it.deliveryInfo}
+                      <RichDescription text={it.deliveryInfo} />
                     </div>
                   )}
                   {it.assignedKeys.length > 0 && (

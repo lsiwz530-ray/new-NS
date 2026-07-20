@@ -227,6 +227,73 @@ async function sendDiscordDM(discordUserId, payload) {
   if (!res.ok) throw new Error(`discord send failed: ${res.status} ${await res.text()}`);
   return res.json();
 }
+async function notifyDiscordNewChatMessage(username, text) {
+  if (!DISCORD_BOT_TOKEN) return;
+  try {
+    const embed = {
+      title: "💬 رسالة دعم جديدة",
+      color: 0x00c2ff,
+      fields: [
+        { name: "من", value: username, inline: true },
+        { name: "الرسالة", value: text.slice(0, 1000) },
+      ],
+      timestamp: new Date().toISOString(),
+      footer: { text: "NorthSite — دردشة الدعم" },
+    };
+    await sendDiscordDM(DISCORD_NOTIFY_USER_ID, { embeds: [embed] });
+  } catch (e) {
+    console.error("[discord] chat notify error:", e.message);
+  }
+}
+
+// Everyone the bot can DM: every member of every server the bot is in.
+// Requires the "Server Members Intent" to be turned ON for the bot in the
+// Discord Developer Portal (Bot page) — otherwise this list comes back empty
+// or fails per-guild, which we just skip quietly.
+let guildMembersCache = { at: 0, members: [] };
+async function fetchAllGuildMembers() {
+  if (!DISCORD_BOT_TOKEN) return [];
+  if (Date.now() - guildMembersCache.at < 60_000) return guildMembersCache.members; // 1 min cache
+  const headers = { Authorization: `Bot ${DISCORD_BOT_TOKEN}` };
+  const guildsRes = await fetch("https://discord.com/api/v10/users/@me/guilds", { headers });
+  if (!guildsRes.ok) throw new Error(`fetch guilds failed: ${guildsRes.status}`);
+  const guilds = await guildsRes.json();
+
+  const byId = new Map();
+  for (const g of guilds) {
+    let after = "0";
+    for (let page = 0; page < 10; page++) { // up to 10,000 members per server
+      const res = await fetch(
+        `https://discord.com/api/v10/guilds/${g.id}/members?limit=1000&after=${after}`,
+        { headers }
+      );
+      if (!res.ok) break; // likely missing the privileged intent — skip this guild
+      const members = await res.json();
+      if (!Array.isArray(members) || !members.length) break;
+      for (const m of members) {
+        const u = m.user;
+        if (!u || u.bot) continue;
+        if (!byId.has(u.id)) {
+          const avatar = u.avatar
+            ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.${u.avatar.startsWith("a_") ? "gif" : "png"}?size=64`
+            : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(u.id) >> 22n) % 6n)}.png`;
+          byId.set(u.id, {
+            discordId: u.id,
+            discordUsername: u.username,
+            discordGlobalName: u.global_name || m.nick || u.username,
+            discordAvatar: avatar,
+          });
+        }
+      }
+      if (members.length < 1000) break;
+      after = members[members.length - 1].user.id;
+    }
+  }
+  const list = Array.from(byId.values());
+  guildMembersCache = { at: Date.now(), members: list };
+  return list;
+}
+
 async function notifyDiscordNewOrder(order) {
   if (!DISCORD_BOT_TOKEN) { console.warn("[discord] DISCORD_BOT_TOKEN not set, skipping order notification"); return; }
   try {
@@ -804,6 +871,7 @@ app.post("/api/chat/:username/message", asyncRoute(async (req, res) => {
     );
   }
   await pool.query(`UPDATE chat_threads SET "lastMessageAt"=$1, "unreadForAdmin"=1 WHERE username=$2`, [now, username]);
+  notifyDiscordNewChatMessage(username, text); // fire-and-forget
   res.json({ ok: true });
 }));
 app.get("/api/admin/chats", requireAdmin, asyncRoute(async (req, res) => {
@@ -889,11 +957,24 @@ app.get("/api/admin/stats", requireAdmin, asyncRoute(async (req, res) => {
 // Lists every site user who signed in with Discord (has a linked discordId),
 // so the admin can pick recipients and message/mention them directly.
 app.get("/api/admin/discord-users", requireAdmin, asyncRoute(async (req, res) => {
-  const rows = await q(
+  const linkedRows = await q(
     `SELECT username, "discordId", "discordUsername", "discordGlobalName", "discordAvatar"
      FROM users WHERE "discordId" IS NOT NULL ORDER BY username ASC`
   );
-  res.json({ users: rows });
+  const linkedById = new Map(linkedRows.map((r) => [r.discordId, { ...r, source: "site" }]));
+
+  let serverMembersError = null;
+  try {
+    const members = await fetchAllGuildMembers();
+    for (const m of members) {
+      if (linkedById.has(m.discordId)) continue; // prefer the site-linked entry (has username)
+      linkedById.set(m.discordId, { username: null, ...m, source: "server" });
+    }
+  } catch (e) {
+    serverMembersError = e.message; // e.g. missing Server Members Intent — still return the linked users
+  }
+
+  res.json({ users: Array.from(linkedById.values()), serverMembersError });
 }));
 
 app.post("/api/admin/discord/broadcast", requireAdmin, asyncRoute(async (req, res) => {

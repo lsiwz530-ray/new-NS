@@ -430,13 +430,13 @@ export const statsActions = {
 
 // ---------- Discord broadcast (admin) ----------
 export type DiscordLinkedUser = {
-  username: string; discordId: string;
+  username: string | null; discordId: string;
   discordUsername?: string; discordGlobalName?: string; discordAvatar?: string;
+  source?: "site" | "server";
 };
 export const discordActions = {
-  async fetchUsers(): Promise<DiscordLinkedUser[]> {
-    const data = await api("/api/admin/discord-users");
-    return data.users || [];
+  async fetchUsers(): Promise<{ users: DiscordLinkedUser[]; serverMembersError?: string | null }> {
+    return api("/api/admin/discord-users");
   },
   async broadcast(discordIds: string[], message: string): Promise<{ ok: boolean; sent: number; failed: { discordId: string; error?: string }[] }> {
     return api("/api/admin/discord/broadcast", { method: "POST", body: JSON.stringify({ discordIds, message }) });

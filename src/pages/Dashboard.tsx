@@ -276,6 +276,9 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
   const descRef = useRef<HTMLTextAreaElement>(null);
   const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
+  const deliveryRef = useRef<HTMLTextAreaElement>(null);
+  const [deliveryLinkLabel, setDeliveryLinkLabel] = useState("");
+  const [deliveryLinkUrl, setDeliveryLinkUrl] = useState("");
 
   useEffect(() => {
     if (product) {
@@ -293,22 +296,32 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
     }
   }, [product, open]);
 
-  function insertLink() {
-    const label = linkLabel.trim() || "رابط";
-    const url = linkUrl.trim();
-    if (!url) { toast.error("أدخل الرابط أولًا"); return; }
-    const markdown = `[${label}](${url})`;
-    const el = descRef.current;
+  function insertLinkInto(
+    text: string, setText: (v: string) => void, ref: React.RefObject<HTMLTextAreaElement>,
+    label: string, url: string
+  ) {
+    const cleanLabel = label.trim() || "رابط";
+    const cleanUrl = url.trim();
+    if (!cleanUrl) { toast.error("أدخل الرابط أولًا"); return; }
+    const markdown = `[${cleanLabel}](${cleanUrl})`;
+    const el = ref.current;
     if (el) {
-      const start = el.selectionStart ?? description.length;
-      const end = el.selectionEnd ?? description.length;
-      const next = description.slice(0, start) + markdown + description.slice(end);
-      setDescription(next);
+      const start = el.selectionStart ?? text.length;
+      const end = el.selectionEnd ?? text.length;
+      const next = text.slice(0, start) + markdown + text.slice(end);
+      setText(next);
       requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = start + markdown.length; });
     } else {
-      setDescription((d) => d + markdown);
+      setText(text + markdown);
     }
+  }
+  function insertLink() {
+    insertLinkInto(description, setDescription, descRef, linkLabel, linkUrl);
     setLinkLabel(""); setLinkUrl("");
+  }
+  function insertDeliveryLink() {
+    insertLinkInto(deliveryInfo, setDeliveryInfo, deliveryRef, deliveryLinkLabel, deliveryLinkUrl);
+    setDeliveryLinkLabel(""); setDeliveryLinkUrl("");
   }
 
   function addGalleryUrl(type: "image" | "gif" | "video", url: string) {
@@ -468,7 +481,16 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
           <TabsContent value="delivery" className="space-y-4 mt-4">
             <div>
               <Label>معلومات التسليم (تظهر للعميل بعد الشراء)</Label>
-              <Textarea value={deliveryInfo} onChange={(e) => setDeliveryInfo(e.target.value)} placeholder="رابط اللودر، تعليمات..." rows={3} className="bg-secondary/50 mt-1" />
+              <Textarea ref={deliveryRef} value={deliveryInfo} onChange={(e) => setDeliveryInfo(e.target.value)} placeholder="رابط اللودر، تعليمات..." rows={3} className="bg-secondary/50 mt-1" />
+              <div className="flex flex-wrap items-center gap-2 mt-2 bg-secondary/30 rounded-lg p-2">
+                <span className="text-xs text-muted-foreground shrink-0">إضافة رابط:</span>
+                <Input value={deliveryLinkLabel} onChange={(e) => setDeliveryLinkLabel(e.target.value)} placeholder="نص الرابط (مثال: رابط اللودر)" className="bg-secondary/50 h-8 text-xs flex-1 min-w-[140px]" />
+                <Input value={deliveryLinkUrl} onChange={(e) => setDeliveryLinkUrl(e.target.value)} placeholder="https://..." className="bg-secondary/50 h-8 text-xs flex-1 min-w-[140px]" />
+                <Button type="button" size="sm" variant="outline" className="border-primary/50 h-8" onClick={insertDeliveryLink}>
+                  <Plus className="w-3 h-3 ml-1" /> إدراج
+                </Button>
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">الرابط يظهر للعميل بعد إتمام الشراء كنص قابل للنقر مباشرة (بدون نسخ).</div>
             </div>
 
             {variants.length > 0 ? (
@@ -574,6 +596,7 @@ function GalleryUrlAdder({ onAdd }: { onAdd: (type: "image" | "gif" | "video", u
 
 function DiscordBroadcastAdmin() {
   const [users, setUsers] = useState<DiscordLinkedUser[]>([]);
+  const [serverError, setServerError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
@@ -581,7 +604,7 @@ function DiscordBroadcastAdmin() {
 
   const load = useCallback(() => {
     setLoading(true);
-    discordActions.fetchUsers().then((u) => { setUsers(u); setLoading(false); });
+    discordActions.fetchUsers().then((res) => { setUsers(res.users); setServerError(res.serverMembersError || null); setLoading(false); });
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -612,11 +635,13 @@ function DiscordBroadcastAdmin() {
     <div className="space-y-4">
       <div className="glass neon-border rounded-xl p-4">
         <div className="text-sm text-muted-foreground mb-1">
-          يرسل البوت رسالة خاصة (منشن + نص عادي بدون embed) لكل عضو اخترته من المسجلين دخول عبر ديسكورد بالموقع.
+          يرسل البوت رسالة خاصة (منشن + نص عادي بدون embed) لكل عضو تختاره. القائمة تشمل من سجّل دخول بديسكورد على الموقع + كل أعضاء السيرفرات المشتركة مع البوت.
         </div>
-        <div className="text-xs text-muted-foreground">
-          ملاحظة: يشمل فقط الأعضاء اللي سجلوا دخول بحسابهم في ديسكورد على الموقع — الإرسال لكل أعضاء سيرفراتك المشتركة مع البوت (بدون ما يسجلوا بالموقع) يحتاج صلاحية إضافية خاصة من ديسكورد غير مفعّلة هنا.
-        </div>
+        {serverError && (
+          <div className="text-xs text-amber-500 mt-1">
+            تعذّر جلب كل أعضاء السيرفر ({serverError}) — تأكد إن خيار "Server Members Intent" مفعّل من Discord Developer Portal → Bot. القائمة أدناه حاليًا تعرض من سجّل دخول بالموقع فقط.
+          </div>
+        )}
       </div>
 
       <div className="glass neon-border rounded-xl p-4">
@@ -629,14 +654,15 @@ function DiscordBroadcastAdmin() {
         {loading ? (
           <div className="text-sm text-muted-foreground">جاري التحميل...</div>
         ) : users.length === 0 ? (
-          <div className="text-sm text-muted-foreground">لا يوجد أعضاء سجلوا دخول عبر ديسكورد بعد.</div>
+          <div className="text-sm text-muted-foreground">لا يوجد أعضاء بعد.</div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-72 overflow-y-auto pl-1">
             {users.map((u) => (
               <label key={u.discordId} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-sm ${selected.has(u.discordId) ? "border-primary bg-primary/10" : "border-transparent bg-secondary/40"}`}>
                 <input type="checkbox" checked={selected.has(u.discordId)} onChange={() => toggle(u.discordId)} className="accent-primary" />
                 {u.discordAvatar && <img src={u.discordAvatar} className="w-6 h-6 rounded-full" alt="" />}
-                <span className="truncate">{u.discordGlobalName || u.discordUsername || u.username}</span>
+                <span className="truncate flex-1">{u.discordGlobalName || u.discordUsername || u.username}</span>
+                {u.source === "site" && <span className="text-[9px] text-primary shrink-0">مسجل بالموقع</span>}
               </label>
             ))}
           </div>
