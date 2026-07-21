@@ -443,7 +443,7 @@ async function suggestUsernames(base) {
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "550mb" }));
 
 function asyncRoute(fn) {
   return (req, res, next) => fn(req, res, next).catch(next);

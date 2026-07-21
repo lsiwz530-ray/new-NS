@@ -333,7 +333,7 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
   }
   function onGalleryFile(e: React.ChangeEvent<HTMLInputElement>, type: "image" | "gif" | "video") {
     const f = e.target.files?.[0]; if (!f) return;
-    const maxMb = type === "video" ? 8 : 4;
+    const maxMb = 100;
     if (f.size > maxMb * 1024 * 1024) { toast.error(`الملف أكبر من ${maxMb}MB`); return; }
     const r = new FileReader();
     r.onload = () => setGallery((g) => [...g, { type, url: String(r.result) }]);
@@ -353,7 +353,7 @@ function ProductDialog({ open, onOpenChange, product, categories = [] }: { open:
 
   function onImgFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]; if (!f) return;
-    if (f.size > 2 * 1024 * 1024) { toast.error("الصورة أكبر من 2MB"); return; }
+    if (f.size > 100 * 1024 * 1024) { toast.error("الصورة أكبر من 100MB"); return; }
     const r = new FileReader(); r.onload = () => setImage(String(r.result)); r.readAsDataURL(f);
   }
   async function save() {
@@ -841,7 +841,7 @@ function BannersUploadField({ value, onChange }: { value: string[]; onChange: (v
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
     files.forEach((f) => {
-      if (f.size > 3 * 1024 * 1024) { toast.error(`${f.name} أكبر من 3MB`); return; }
+      if (f.size > 100 * 1024 * 1024) { toast.error(`${f.name} أكبر من 100MB`); return; }
       const r = new FileReader();
       r.onload = () => onChange([...value, String(r.result)]);
       r.readAsDataURL(f);
@@ -870,7 +870,7 @@ function BannersUploadField({ value, onChange }: { value: string[]; onChange: (v
 function IconUploadField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]; if (!f) return;
-    if (f.size > 1024 * 1024) { toast.error("الصورة أكبر من 1MB"); return; }
+    if (f.size > 100 * 1024 * 1024) { toast.error("الصورة أكبر من 100MB"); return; }
     const r = new FileReader(); r.onload = () => onChange(String(r.result)); r.readAsDataURL(f);
   }
   return (
